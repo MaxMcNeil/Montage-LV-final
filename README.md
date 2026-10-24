@@ -9,7 +9,8 @@ extraits vidéo arrivent **au moment exact où tu en parles**. Tout est gratuit 
 *Releases → Draft a new release → Choose a tag* : tape `montage-001` (puis `montage-002`…) → *Create new tag*.
 Joins **ta vidéo** + tes **photos / vidéos** (glisser ou « Attach binaries ») → *Publish release*.
 
-- **La plus grosse vidéo jointe = ta vidéo.** Les autres fichiers = pièces jointes à placer.
+- **Ta vidéo = le fichier dont le nom commence par « moi »** (`moi.mp4`, `Moi_interview.mov`…), qu'il soit joint à la
+  release ou sur Google Drive. Sans fichier « moi… » : la plus grosse vidéo jointe. Tout le reste = pièces jointes à placer.
 - **Vidéo trop lourde (> 2 Go) ou déjà sur Google Drive** : ne joins rien, colle le **lien Google Drive** dans la
   description. D'autres liens Drive (fichiers ou **dossier**) dans la description = pièces jointes.
 - **Consignes** : écris-les librement dans la description, l'IA les lit

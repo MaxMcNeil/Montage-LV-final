@@ -208,19 +208,25 @@ def main():
     notes, opts, links = parse_body(body)
     if os.environ.get("NOTES"):
         notes = (notes + "\n" + os.environ["NOTES"]).strip()
-    # vidéo principale : la plus grosse vidéo ; sinon le premier lien Drive de la description
-    vids = sorted([f for f in files if is_video(f)], key=lambda f: f.stat().st_size, reverse=True)
-    main_video = vids[0] if vids else None
-    if main_video is None and links:
-        got = from_drive(links.pop(0), RAW / "main")
-        vv = sorted([f for f in got if is_video(f)], key=lambda f: f.stat().st_size, reverse=True)
-        main_video = vv[0] if vv else None
+    # tout est téléchargé d'abord (release, liens Drive de la description, champ « pieces_jointes »)
+    first_link: list[Path] = []
+    extra = links + re.findall(DRIVE_RE, pieces) + [u for u in re.findall(r"https?://\S+", pieces) if "google.com" not in u]
+    for k, u in enumerate(extra):
+        got = from_drive(u, RAW / f"lien{k}") if "google.com" in u else from_url(u, RAW / f"lien{k}")
+        if k == 0 and u in links:
+            first_link = got
+        files += got
+    big = lambda fs: sorted([f for f in fs if is_video(f)], key=lambda f: f.stat().st_size, reverse=True)  # noqa: E731
+    # vidéo principale :
+    #   1. un fichier dont le nom commence par « moi » (moi.mp4, Moi_intro.mov…), où qu'il soit (release ou Drive) ;
+    #   2. sinon la plus grosse vidéo jointe à la release (ou donnée en « source ») ;
+    #   3. sinon la vidéo du premier lien Drive de la description.
+    mine = big([f for f in files if f.name.lower().startswith("moi")])
+    direct = big([f for f in files if not any(f.is_relative_to(RAW / f"lien{k}") for k in range(len(extra)))])
+    main_video = (mine or direct or big(first_link) or big(files) or [None])[0]
     if main_video is None:
         die("Aucune vidéo trouvée : joins ta vidéo à la release (ou colle son lien Google Drive partagé dans la description).")
-    # pièces jointes : le reste + liens Drive restants + champ « pieces_jointes »
-    extra = links + re.findall(DRIVE_RE, pieces) + [u for u in re.findall(r"https?://\S+", pieces) if "google.com" not in u]
-    for u in extra:
-        files += from_drive(u, RAW / "pieces") if "google.com" in u else from_url(u, RAW / "pieces")
+    print(f"Ta vidéo : {main_video.name}" + (" (nom commençant par « moi »)" if mine else ""))
     n = 0
     for f in files:
         if f == main_video or not f.exists():
