@@ -169,6 +169,32 @@ def parse_body(body: str) -> tuple[str, dict, list[str]]:
     return notes, opts, links
 
 
+TS = r"(\d{1,2}(?::\d{1,2}){0,2}(?:[.,]\d+)?)"
+CUT_RE = re.compile(r"^\s*[-*•]?\s*(.+?\.[A-Za-z0-9]{2,4})\s*[=:]\s*" + TS + r"\s*(?:-|–|—|à|a|to)\s*" + TS + r"\s*$", re.I)
+
+
+def ts(s: str) -> float:
+    """« 1:20 » → 80 s ; « 1:02:03 » → 3723 s ; « 95 » → 95 s ; « 1:20,5 » → 80.5 s."""
+    sec = 0.0
+    for part in s.replace(",", ".").split(":"):
+        sec = sec * 60 + float(part)
+    return sec
+
+
+def parse_cuts(text: str) -> tuple[str, dict]:
+    """Lignes « fichier.mp4 = 1:20-1:45 » : passage imposé pour une de tes vidéos jointes (facultatif)."""
+    cuts, keep = {}, []
+    for line in (text or "").splitlines():
+        m = CUT_RE.match(line)
+        if m and m.group(1).lower().endswith(VIDEO):
+            a, b = ts(m.group(2)), ts(m.group(3))
+            if b > a:
+                cuts[m.group(1).strip().lower()] = [a, b]
+                continue
+        keep.append(line)
+    return "\n".join(keep), cuts
+
+
 def is_video(p: Path) -> bool:
     return p.suffix.lower() in VIDEO
 
@@ -205,9 +231,12 @@ def main():
         out("tag", tag)
         body = release_body(tag)
         files += from_release(tag)
+    body, cuts = parse_cuts(body)
+    extra_notes, cuts2 = parse_cuts(os.environ.get("NOTES") or "")
+    cuts.update(cuts2)
     notes, opts, links = parse_body(body)
-    if os.environ.get("NOTES"):
-        notes = (notes + "\n" + os.environ["NOTES"]).strip()
+    if extra_notes.strip():
+        notes = (notes + "\n" + extra_notes).strip()
     # tout est téléchargé d'abord (release, liens Drive de la description, champ « pieces_jointes »)
     first_link: list[Path] = []
     extra = links + re.findall(DRIVE_RE, pieces) + [u for u in re.findall(r"https?://\S+", pieces) if "google.com" not in u]
@@ -240,6 +269,9 @@ def main():
     shutil.rmtree(RAW, ignore_errors=True)
     (IN / "notes.txt").write_text(notes, encoding="utf-8")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
+    (IN / "cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
+    for k, (a, b) in cuts.items():
+        print(f"Passage imposé : {k} de {a:.1f} s à {b:.1f} s")
     base = re.sub(r"[^\w.-]", "_", main_video.stem)[:40] or "video"
     out("video", str(dst))
     out("base", base)

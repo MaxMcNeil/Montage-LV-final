@@ -79,8 +79,10 @@ def describe_attachments(att: list) -> str:
         else:
             sents = a.get("sentences") or []
             body = " / ".join(f'[{s["t0"]:.0f}-{s["t1"]:.0f}s] {s["text"]}' for s in sents[:60])
+            cut = (f' | PASSAGE IMPOSÉ PAR L\'AUTEUR : {a["cut"][0]:.0f}-{a["cut"][1]:.0f} s (garde ces bornes)'
+                   if a.get("cut") else "")
             lines.append(f'- id "{a["id"]}" — VIDÉO « {a["name"]} » ({a.get("duration", 0):.0f} s) : '
-                         f'{a.get("description") or ""} | paroles : {body or "(aucune parole)"}')
+                         f'{a.get("description") or ""}{cut} | paroles : {body or "(aucune parole)"}')
     return "\n".join(lines)
 
 

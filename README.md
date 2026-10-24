@@ -29,6 +29,19 @@ fin: non
 images_web: non
 ```
 
+**Passage imposé pour une de tes vidéos jointes** (facultatif) : une ligne par vidéo, nom du fichier = début-fin.
+Sans cette ligne, l'IA choisit elle-même le passage utile (25 s max, coupé en fin de phrase).
+
+```
+discours.mp4 = 1:20-1:45
+interview_ministre.mov = 0:05-0:32
+reportage.mp4 = 1:02:10-1:02:40
+```
+
+Le passage est appliqué à la lettre (même au-delà de 25 s). Ça marche aussi dans le champ « consignes » du
+formulaire *Run workflow*. Le nom doit être celui du fichier joint (majuscules sans importance ; l'extension peut
+même différer).
+
 Le titre de ta release affiche l'état : **⏳ EN COURS** → **✅ TERMINÉ** (lien vers le résultat) ou **❌ ÉCHEC** (lien vers l'erreur).
 Le résultat arrive dans la release **🎬 RÉSULTAT — Montage final** : la vidéo + **PLAN.md** (quoi, où, quand, et pourquoi).
 Chaque nouveau montage **remplace** le précédent, et les anciennes vidéos déposées sont supprimées (le dépôt ne grossit pas).

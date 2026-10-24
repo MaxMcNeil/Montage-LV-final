@@ -68,6 +68,7 @@ def main(argv=None) -> int:
     ap.add_argument("--attachments", default="input/attachments")
     ap.add_argument("--notes", default="input/notes.txt")
     ap.add_argument("--options", default="input/options.json")
+    ap.add_argument("--cuts", default="input/cuts.json")
     ap.add_argument("--out", default="output")
     ap.add_argument("--work", default="work")
     ap.add_argument("--fonts", default="fonts")
@@ -97,6 +98,16 @@ def main(argv=None) -> int:
     # 2) pièces jointes + plan éditorial
     ai = AI()
     att = list_attachments(Path(a.attachments))
+    cuts = {}
+    try:  # passages imposés : « discours.mp4 = 1:20-1:45 » dans la description
+        cuts = {k.lower(): v for k, v in json.loads(Path(a.cuts).read_text(encoding="utf-8")).items()}
+    except (OSError, ValueError):
+        pass
+    for x in att:
+        nm = re.sub(r"^\d{2}_", "", x["name"]).lower()
+        c = cuts.get(nm) or next((v for k, v in cuts.items() if Path(k).stem == Path(nm).stem), None)
+        if c and x["kind"] == "video":
+            x["cut"] = c
     describe_attachments(att, ai, work, lang)
     log.info("Pièces jointes : %d image(s), %d vidéo(s)", sum(x["kind"] == "image" for x in att),
              sum(x["kind"] == "video" for x in att))
@@ -154,7 +165,13 @@ def main(argv=None) -> int:
         s_ = x.get("sentences") or []
         want0 = ins.get("clip_start") or 0.0
         want1 = ins.get("clip_end") or 0.0
-        a0, b0 = choose_bounds(s_, want0, want1 if want1 > want0 else x["duration"], maxd, x["duration"])
+        if x.get("cut"):  # passage imposé par toi : appliqué à la lettre
+            a0, b0 = max(0.0, x["cut"][0]), min(x["duration"], x["cut"][1])
+            if b0 - a0 < 1:
+                log.warning("passage imposé hors de la vidéo %s (%.0f s) : ignoré", x["name"], x["duration"])
+                a0, b0 = choose_bounds(s_, want0, want1 if want1 > want0 else x["duration"], maxd, x["duration"])
+        else:
+            a0, b0 = choose_bounds(s_, want0, want1 if want1 > want0 else x["duration"], maxd, x["duration"])
         asset = prepare_insert(Path(x["path"]), a0, b0, orient, work, f"insert_att{k}", lang, ai, s_ if s_ else None,
                                x.get("lang"))
         if asset:
