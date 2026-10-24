@@ -339,6 +339,12 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     if plan.get("fallback"):
         L.append("- ⚠ IA indisponible : montage simplifié (pièces jointes réparties, sans photos ni presse). "
                  "Vérifie les secrets GEMINI_API_KEYS / GROQ_API_KEYS.")
+    try:
+        for w in Path("input/warnings.txt").read_text(encoding="utf-8").splitlines():
+            if w.strip():
+                L.append(f"- ⚠ {w.strip()}")
+    except OSError:
+        pass
     if plan.get("hook"):
         L.append(f"- Accroche (0:00 → 0:03) : « {plan['hook']} »")
     if lot_info:

@@ -32,6 +32,7 @@ ALIASES = {"silences": "couper_silences", "coupe": "couper_silences", "sous-titr
            "resultats": "finder", "recherche": "finder",
            "synchro": "finder", "synchro_finder": "finder", "vid-o-presse-finder": "finder"}
 REPO = os.environ.get("REPO", "")
+WARN: list[str] = []   # problèmes à afficher en tête de PLAN.md
 IN = Path("input")
 RAW = IN / "raw"
 ATT = IN / "attachments"
@@ -144,14 +145,15 @@ def waiting_releases(exclude: set) -> list[str]:
     import datetime as dt
     try:
         j = json.loads(sh(["gh", "release", "list", "--repo", REPO, "--limit", "40", "--json",
-                           "tagName,createdAt,isDraft"]).stdout)
+                           "tagName,createdAt,isDraft,name"]).stdout)
     except Exception:  # noqa: BLE001
         return []
     now = dt.datetime.now(dt.timezone.utc)
     out_tags = []
     for r in j:
         t = r["tagName"]
-        if r.get("isDraft") or t in exclude or t.lower().startswith(("montage", "out-")):
+        if r.get("isDraft") or t in exclude or t.lower().startswith(("montage", "out-")) \
+                or (r.get("name") or "").startswith("✅"):  # déjà utilisée par un montage : seulement si tu la cites
             continue
         try:
             age = now - dt.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
@@ -173,7 +175,9 @@ def from_release(tag: str, dest: Path | None = None) -> list[Path]:
         sh(["gh", "release", "download", tag, "--repo", REPO, "--dir", dest, "--clobber"], timeout=3600)
     except RuntimeError as e:
         if "no assets" not in str(e).lower():
-            print(f"::warning::{e}")
+            msg = f"release « {tag} » introuvable ou illisible ({str(e)[:120]})"
+            print(f"::warning::{msg}")
+            WARN.append(msg)
     return [p for p in dest.rglob("*") if p.is_file()]
 
 
@@ -342,6 +346,7 @@ def main():
     if tag and "finder" not in opts and re.search(r"solo|sans", tag.lower()):
         opts["finder"] = "non"
         print(f"Tag « {tag} » : montage SANS Vid-o-presse-finder")
+    (IN / "warnings.txt").write_text("\n".join(WARN), encoding="utf-8")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
     (IN / "cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
     for k, (a, b) in cuts.items():
