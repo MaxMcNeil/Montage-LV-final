@@ -198,6 +198,30 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         if label:
             f2 = _font("sans", 30, True, label)
             draw_lines(d, [label], f2, 30, (P + m, P + ph - 74, pw - 2 * m, 40), C.GREY)
+    elif kind == "statement":  # déclaration (extrait vidéo non téléchargeable) : vignette + citation + qui + où
+        has_img = img is not None
+        hole = (22, 22, pw - 44, int(ph * 0.42)) if has_img else None
+        im, d = _base(pw, ph, C.PAPER, hole)
+        m = 40
+        top = (hole[1] + hole[3] + 22) if hole else 40
+        quote = data.get("text", "")
+        rtl = has_rtl(quote)
+        fq = _font("serif", 120, True, "«")
+        d.text((P + (pw - m - 70 if rtl else m - 8), P + top - 34), "”" if rtl else "“", font=fq, fill=C.GOLD)
+        avail = ph - top - 150
+        f, lines, size = fit(d, quote, "serif", pw - 2 * m - 30, avail, 52, 26, 7, 1.18)
+        draw_lines(d, lines, f, size, (P + m + (0 if rtl else 30), P + top + 34, pw - 2 * m - 30, avail), C.INK, spacing=1.18)
+        y = P + ph - 108
+        if label:
+            d.rectangle((P + pw - m - 8 if has_rtl(label) else P + m, y + 6, P + pw - m if has_rtl(label) else P + m + 8,
+                         y + 50), fill=C.GOLD)
+            f2, l2, s2 = fit(d, label, "sans", pw - 2 * m - 26, 50, 36, 22, 1)
+            draw_lines(d, l2, f2, s2, (P + m + (0 if has_rtl(label) else 26), y + 4, pw - 2 * m - 26, 50), C.NAVY)
+        if sub:
+            f3 = _font("sans", 25, False, sub)
+            draw_lines(d, [sub[:70]], f3, 25, (P + m + 26, y + 60, pw - 2 * m - 26, 34), C.GREY)
+        if has_img:
+            photo = _cover(img, hole[2] * 2, hole[3] * 2, 0.4)
     elif kind == "article":
         hdr = 92
         has_img = img is not None

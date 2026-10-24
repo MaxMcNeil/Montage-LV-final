@@ -132,4 +132,5 @@ DEFAULTS = {
     "effets_sonores": "oui",        # petits souffles discrets aux transitions (pas de musique)
     "fin": "oui",                   # carte de fin « merci / abonnez-vous »
     "langue": "auto",               # auto | fr | ar | it | en ...
+    "finder": "dernier",            # dernier | non | <nom d'un lot> : résultats de Vid-o-presse-finder à monter
 }

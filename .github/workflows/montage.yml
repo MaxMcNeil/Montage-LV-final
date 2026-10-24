@@ -50,11 +50,11 @@ on:
         type: choice
         options: [défaut, oui, non]
         default: défaut
-      fin:
-        description: "Carte de fin « merci / abonnez-vous »"
+      finder:
+        description: "Synchro avec Vid-o-presse-finder : monter les extraits et articles de son DERNIER lot (non = juste tes pièces jointes)"
         type: choice
-        options: [défaut, oui, non]
-        default: défaut
+        options: [oui, non]
+        default: oui
 
 permissions:
   contents: write
@@ -83,6 +83,8 @@ jobs:
       GUARDIAN_API_KEYS: ${{ secrets.GUARDIAN_API_KEYS }}
       NYT_API_KEYS: ${{ secrets.NYT_API_KEYS }}
       YT_PROXY_URL: ${{ secrets.YT_PROXY_URL }}
+      YT_COOKIES: ${{ secrets.YT_COOKIES }}
+      VPF_DIR: vpf
       RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
       QF_CACHE_DIR: .cache
       QF_QUOTA_FILE: state/quota.json
@@ -171,9 +173,12 @@ jobs:
           MONTAGE_MAX_INSERTS: ${{ inputs.max_inserts }}
           MONTAGE_LANGUE: ${{ inputs.langue }}
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
-          MONTAGE_FIN: ${{ inputs.fin }}
+          MONTAGE_FINDER: ${{ inputs.finder }}
         run: |
           mkdir -p fonts state
+          if [ -n "${YT_COOKIES:-}" ]; then printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/yt-cookies.txt"; export YT_COOKIES_FILE="$RUNNER_TEMP/yt-cookies.txt"; fi
+          git -C vpf pull -q --depth 1 origin HEAD 2>/dev/null || true   # derniers résultats de Vid-o-presse-finder
+          ls -1 vpf/results 2>/dev/null | grep -E '^[0-9]{4}-' | tail -3 || true
           python3 -m montage --video "${{ steps.fetch.outputs.video }}" --attachments input/attachments \
             --notes input/notes.txt --options input/options.json --out output --work work
 

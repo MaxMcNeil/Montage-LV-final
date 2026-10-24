@@ -18,8 +18,10 @@ from pathlib import Path
 from . import config as C
 from .ai import AI
 from .ass import ASS
-from .assets import (choose_bounds, describe_attachments, list_attachments, og_image, prepare_insert, press_clip,
-                     press_search, wiki_image)
+from .assets import (choose_bounds, clip_insert, describe_attachments, list_attachments, og_image, prepare_insert,
+                     press_clip, press_search, thumbnail, wiki_image)
+from .finder import load_lot
+from .finder import match as finder_match
 from .media import face_center
 from .panels import open_image, render_panel
 from .plan import ask
@@ -48,6 +50,8 @@ def options(path: str | None) -> dict:
     no = {"non", "no", "false", "0", "off", "لا"}
     for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
+    f = (o.get("finder") or "dernier").strip()
+    o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
     if o["couper_silences"] not in ("doux", "dynamique", "non"):
         o["couper_silences"] = "non" if o["couper_silences"] in no else C.DEFAULTS["couper_silences"]
     for k in ("max_inserts", "duree_max_insert"):
@@ -178,7 +182,64 @@ def main(argv=None) -> int:
             asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
             asset["source"] = f"pièce jointe « {x['name']} » ({tc(a0)} → {tc(b0)})"
             inserts.append({"after": ins["after"], "asset": asset, "attachment": x["id"]})
-    if opts["recherche_presse"] != "non" and plan["press"]:
+    # 4b) résultats de Vid-o-presse-finder (dernier lot) placés selon ce que tu dis
+    lot_info = None
+    finder_used = False
+    if opts.get("finder", "dernier") != "non" and sents:
+        try:
+            lot = load_lot(Path(os.environ.get("VPF_DIR", "vpf")), opts.get("finder", "dernier"))
+        except Exception as e:  # noqa: BLE001
+            log.warning("lecture des résultats Vid-o-presse-finder impossible : %s", e)
+            lot = None
+        if lot:
+            m = finder_match(ai, sents, lot, lang, max_ins)
+            lot_info = {"lot": lot["lot"], "age": lot["age_days"], "clips": len(lot["clips"]),
+                        "articles": len(lot["articles"]), "placed": m, "video_ok": 0, "cards": 0}
+            used = set()
+            for k, x in enumerate(m["inserts"]):
+                c = lot["clips"][x["clip"]]
+                asset = clip_insert([c], orient, work, f"finder{k}", lang, ai, maxd, used)
+                if asset:
+                    cr = asset["credit"]
+                    asset["source"] = f"Vid-o-presse-finder ({lot['lot']}) — {cr.get('title')} — {cr.get('source')} ({cr.get('url')})"
+                    inserts.append({"after": x["after"], "asset": asset})
+                    lot_info["video_ok"] += 1
+                    continue
+                # vidéo indisponible : la déclaration apparaît quand même, en carte à côté de toi
+                quote = x.get("quote") or c.get("quote") or ""
+                ws = quote.split()
+                quote = " ".join(ws[:32]) + ("…" if len(ws) > 32 else "")
+                img = thumbnail(c, work / "web" / f"thumb_{k}")
+                sub_ = " · ".join(z for z in (c.get("channel") or c.get("platform") or "", _fmt_date(c.get("uploaded", ""))) if z)
+                v = {"kind": "statement", "s0": x["s0"], "s1": min(x["after"], x["s0"] + 2), "trigger": "", "priority": 1,
+                     "label": c.get("speaker") or "", "text": quote,
+                     "source": f"Vid-o-presse-finder ({lot['lot']}) — vidéo non téléchargeable, carte déclaration — "
+                               f"{c.get('title')} ({c.get('source_url')})"}
+                try:
+                    v["asset"] = render_panel("statement", pw, ph, {"text": quote, "label": v["label"], "sublabel": sub_,
+                                                                    "image": open_image(img) if img else None},
+                                              pdir, f"stmt{k}")
+                    plan["visuals"].append(v)
+                    lot_info["cards"] += 1
+                except Exception as e:  # noqa: BLE001
+                    log.warning("carte déclaration abandonnée : %s", e)
+            for k, x in enumerate(m["articles"]):
+                art = lot["articles"][x["article"]]
+                img = og_image(art.get("url", ""), work / "web" / f"ogf_{k}")
+                data = {"source": art.get("source") or art.get("domaine", ""), "date": _fmt_date(art.get("date", "")),
+                        "headline": x.get("headline") or art["titre"], "domain": art.get("domaine", ""),
+                        "image": open_image(img) if img else None}
+                v = {"kind": "article", "s0": x["s0"], "s1": x["s0"], "trigger": "", "priority": 1,
+                     "label": data["headline"][:60], "source": f"Vid-o-presse-finder ({lot['lot']}) — {art.get('source')} — {art.get('url')}"}
+                try:
+                    v["asset"] = render_panel("article", pw, ph, data, pdir, f"artf{k}")
+                    plan["visuals"].append(v)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("carte article abandonnée : %s", e)
+            finder_used = bool(m["inserts"] or m["articles"])
+            log.info("Vid-o-presse-finder : %d extrait(s) vidéo inséré(s), %d carte(s) déclaration, %d article(s)",
+                     lot_info["video_ok"], lot_info["cards"], len(m["articles"]))
+    if opts["recherche_presse"] != "non" and plan["press"] and not finder_used:
         used = set()
         budget_end = time.time() + 25 * 60
         for k, p in enumerate(plan["press"][:2]):
@@ -253,7 +314,7 @@ def main(argv=None) -> int:
     log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
 
     # 8) rapport : quoi / où / quand
-    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai)
+    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info)
     return 0
 
 
@@ -270,7 +331,7 @@ def _fmt_date(d: str) -> str:
     return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else (d or "")[:20]
 
 
-def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai):
+def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None):
     L = []
     L.append(f"# Montage — {plan.get('title') or 'vidéo'}\n")
     L.append(f"- Durée : {tc(info['duration'])} déposée → **{tc(total)}** montée "
@@ -280,6 +341,16 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                  "Vérifie les secrets GEMINI_API_KEYS / GROQ_API_KEYS.")
     if plan.get("hook"):
         L.append(f"- Accroche (0:00 → 0:03) : « {plan['hook']} »")
+    if lot_info:
+        age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
+        L.append(f"- Vid-o-presse-finder : lot **{lot_info['lot']}**{age} — {lot_info['clips']} extrait(s) et "
+                 f"{lot_info['articles']} article(s) disponibles → {len(lot_info['placed']['inserts'])} déclaration(s) en "
+                 f"rapport avec ce que tu dis ({lot_info['video_ok']} en vidéo, {lot_info['cards']} en carte car la vidéo "
+                 f"n'a pas pu être téléchargée), {len(lot_info['placed']['articles'])} article(s)")
+        if lot_info.get("age") and lot_info["age"] > 7:
+            L.append("  ⚠ ce lot date de plus d'une semaine : relance Vid-o-presse-finder sur ton sujet avant le montage.")
+    elif opts.get("finder") != "non":
+        L.append("- Vid-o-presse-finder : aucun lot de résultats trouvé.")
     if plan.get("title"):
         L.append(f"\n## Pour YouTube\n**Titre conseillé** : {plan['title']}\n")
         if plan.get("description"):
@@ -303,7 +374,7 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             v = s.panel["v"]
             what = {"person": "Photo (personne)", "place": "Photo (lieu)", "thing": "Photo", "event": "Photo (événement)",
                     "article": "Article de presse", "figure": "Chiffre clé", "quote": "Citation",
-                    "attachment": "Ta photo"}.get(v["kind"], v["kind"])
+                    "attachment": "Ta photo", "statement": "Déclaration (carte)"}.get(v["kind"], v["kind"])
             lab = v.get("text") or v.get("label") or ""
             side = ("à droite de toi" if s.side == "left" else "à gauche de toi") if info["w"] >= info["h"] else "sous toi"
             said = sents[v["s0"]]["text"][:110] if v["s0"] < len(sents) else ""

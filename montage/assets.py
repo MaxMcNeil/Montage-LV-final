@@ -233,26 +233,52 @@ def og_image(url: str, dest: Path) -> str | None:
     return str(dest)
 
 
+def thumbnail(c: dict, dest: Path) -> str | None:
+    """Vignette de la vidéo source (YouTube : toujours accessible, même quand la vidéo est bloquée)."""
+    vid = c.get("video_id") or ""
+    if c.get("platform") == "youtube" or "youtu" in (c.get("source_url") or ""):
+        for q_ in ("maxresdefault", "sddefault", "hqdefault"):
+            r = _get(f"https://i.ytimg.com/vi/{vid}/{q_}.jpg", timeout=20)
+            if r and len(r.content) > 6000:
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(r.content)
+                return str(dest)
+        return None
+    return og_image(c.get("source_url", ""), dest)
+
+
 def download_section(url: str, a: float, b: float, dest: Path) -> Path | None:
-    """Télécharge uniquement le passage [a, b] (yt-dlp). YouTube peut refuser depuis GitHub : on passe alors au suivant."""
+    """Télécharge uniquement le passage [a, b] (yt-dlp). YouTube bloque souvent les serveurs GitHub : plusieurs façons
+    de se présenter sont essayées (et tes cookies / ton proxy si tu les as mis en secrets)."""
     dest.parent.mkdir(parents=True, exist_ok=True)
-    for f in dest.parent.glob(dest.name + ".*"):
-        f.unlink()
-    cmd = [sys.executable, "-m", "yt_dlp", "--no-warnings", "--no-playlist", "--download-sections", f"*{a:.2f}-{b:.2f}",
-           "--force-keyframes-at-cuts", "-f", "bv*[height<=1080]+ba/b[height<=1080]/b", "--merge-output-format", "mp4",
-           "-o", f"{dest}.%(ext)s", url]
+    base = [sys.executable, "-m", "yt_dlp", "--no-warnings", "--no-playlist", "--download-sections", f"*{a:.2f}-{b:.2f}",
+            "--force-keyframes-at-cuts", "-f", "bv*[height<=1080]+ba/b[height<=1080]/b", "--merge-output-format", "mp4",
+            "-o", f"{dest}.%(ext)s"]
     if os.environ.get("YT_PROXY_URL") and "youtu" in url:
-        cmd[3:3] = ["--proxy", os.environ["YT_PROXY_URL"]]
-    try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=420)
-    except (subprocess.SubprocessError, OSError) as e:
-        log.warning("téléchargement impossible (%s) : %s", url, e)
-        return None
-    f = next(iter(dest.parent.glob(dest.name + ".*")), None)
-    if f is None:
-        log.warning("téléchargement refusé (%s) : %s", url, ((r.stderr or "").strip().splitlines() or ["?"])[-1][:160])
-        return None
-    return f
+        base += ["--proxy", os.environ["YT_PROXY_URL"]]
+    ck = os.environ.get("YT_COOKIES_FILE")
+    if ck and os.path.exists(ck) and os.path.getsize(ck) > 50:  # cookies d'un compte YouTube : passe le blocage « bot »
+        base += ["--cookies", ck]
+    variants = [[]]
+    if "youtu" in url:
+        variants += [["--extractor-args", "youtube:player_client=tv"], ["--extractor-args", "youtube:player_client=mweb"]]
+    last = "?"
+    for v in variants:
+        for f in dest.parent.glob(dest.name + ".*"):
+            f.unlink()
+        try:
+            r = subprocess.run(base + v + [url], capture_output=True, text=True, timeout=240)
+            last = ((r.stderr or "").strip().splitlines() or ["?"])[-1][:160]
+        except (subprocess.SubprocessError, OSError) as e:
+            last = str(e)
+            continue
+        f = next(iter(p for p in dest.parent.glob(dest.name + ".*") if not p.name.endswith(".part")), None)
+        if f is not None and f.stat().st_size > 20_000:
+            return f
+        if "not a bot" not in last.lower() and "sign in" not in last.lower() and "403" not in last:
+            break  # autre erreur (vidéo supprimée…) : inutile d'insister
+    log.warning("téléchargement refusé (%s) : %s", url, last)
+    return None
 
 
 # ------------------------------------------------------------------ extraits insérés (pendant tes silences)
@@ -346,26 +372,32 @@ def prepare_insert(src: Path, a: float, b: float, orient: str, work: Path, name:
 def press_clip(res: dict, orient: str, work: Path, idx: int, lang: str, ai, maxd: float, used: set) -> dict | None:
     """Meilleur extrait téléchargeable d'une recherche presse (essaie jusqu'à 4 candidats)."""
     order = {"ia-affiné": 0, "sous-titres": 0, "ia": 1}
-    cands = [c for c in res.get("clips", []) if c.get("source_url") and c.get("verdict") != "denial"
-             and (c.get("source_url"), round(c.get("start", 0))) not in used]
+    cands = [c for c in res.get("clips", []) if c.get("source_url") and c.get("verdict") != "denial"]
     cands.sort(key=lambda c: (order.get(c.get("timing"), 2), -float(c.get("score") or 0)))
-    for c in cands[:4]:
+    return clip_insert(cands[:4], orient, work, f"press{idx}", lang, ai, maxd, used)
+
+
+def clip_insert(cands: list, orient: str, work: Path, idx, lang: str, ai, maxd: float, used: set) -> dict | None:
+    """Télécharge et prépare le premier extrait possible parmi les candidats (déclarations horodatées)."""
+    for k, c in enumerate(cands):
+        if (c.get("source_url"), round(c.get("start", 0))) in used:
+            continue
         a0, b0 = float(c.get("in", c.get("start", 0))), float(c.get("out", c.get("end", 0)))
         if b0 - a0 < 3:
             continue
         b0 = min(b0, a0 + maxd * 2.2)  # on télécharge un peu plus, la coupe se fait en fin de phrase
-        f = download_section(c["source_url"], max(0.0, a0 - 1.0), b0 + 1.5, work / f"press{idx}_raw")
+        f = download_section(c["source_url"], max(0.0, a0 - 1.0), b0 + 1.5, work / f"{idx}_{k}_raw")
         if not f:
             continue
         try:
-            t = transcribe(f, work, None, tag=f"press{idx}_asr")
+            t = transcribe(f, work, None, tag=f"{idx}_{k}_asr")
         except Exception:  # noqa: BLE001
             t = {"words": [], "lang": ""}
         ss = sentences(t["words"])
         dur = probe(f)["duration"]
         quote_start = (float(c.get("start", a0)) - max(0.0, a0 - 1.0))
         a, b = choose_bounds(ss, quote_start, dur, maxd, dur)
-        ins = prepare_insert(f, a, b, orient, work, f"insert_press{idx}", lang, ai, ss, t.get("lang"))
+        ins = prepare_insert(f, a, b, orient, work, f"insert_{idx}_{k}", lang, ai, ss, t.get("lang"))
         if ins:
             used.add((c.get("source_url"), round(c.get("start", 0))))
             ins["credit"] = {"speaker": c.get("speaker") or "", "role": c.get("speaker_role") or "",

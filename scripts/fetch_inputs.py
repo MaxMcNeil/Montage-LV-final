@@ -24,11 +24,13 @@ from pathlib import Path
 VIDEO = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".3gp", ".mts")
 IMAGE = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif", ".avif")
 KEYS = ["couper_silences", "sous_titres", "recherche_presse", "max_inserts", "duree_max_insert", "images_web",
-        "effets_sonores", "fin", "langue"]
+        "effets_sonores", "fin", "langue", "finder"]
 ALIASES = {"silences": "couper_silences", "coupe": "couper_silences", "sous-titres": "sous_titres", "subtitles": "sous_titres",
            "presse": "recherche_presse", "inserts": "max_inserts", "insertions": "max_inserts", "duree_insert": "duree_max_insert",
            "photos_web": "images_web", "effets": "effets_sonores", "sons": "effets_sonores", "carte_fin": "fin",
-           "lang": "langue", "language": "langue"}
+           "lang": "langue", "language": "langue", "lot": "finder", "vid_o_presse_finder": "finder",
+           "resultats": "finder", "recherche": "finder",
+           "synchro": "finder", "synchro_finder": "finder", "vid-o-presse-finder": "finder"}
 REPO = os.environ.get("REPO", "")
 IN = Path("input")
 RAW = IN / "raw"
@@ -282,7 +284,10 @@ def main():
     cuts.update(cuts2)
     notes, opts, links = parse_body(body)
     if extra_notes.strip():
-        notes = (notes + "\n" + extra_notes).strip()
+        n3, o3, l3 = parse_body(extra_notes)  # réglages écrits dans le champ « consignes » du formulaire
+        opts.update(o3)
+        links += l3
+        notes = (notes + "\n" + n3).strip()
     # releases de pièces jointes : citées dans le champ « pieces_jointes » (ex. « Video »), ou en attente (< 3 jours)
     named = [t for t in re.split(r"[\s,;]+", pieces) if t and not t.startswith("http")]
     consumed = []

@@ -53,6 +53,24 @@ Chaque nouveau montage **remplace** le précédent, et les anciennes vidéos dé
 
 Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vidéo, liens des pièces jointes, consignes, réglages).
 
+## 🔗 Synchro avec Vid-o-presse-finder
+
+Ton enchaînement : tu lances **Vid-o-presse-finder** sur ton sujet → tu enregistres ta vidéo d'après ses résultats →
+tu lances le montage. Par défaut (`finder: oui`), le montage reprend le **dernier lot** du Finder (extraits vidéo
+horodatés + articles) ; l'IA garde ceux qui correspondent à ce que tu dis et les place au bon moment :
+- déclaration en vidéo → insérée pendant ton silence, juste après la phrase où tu en parles (coupée sur ses
+  timestamps, en fin de phrase, sous-titrée/traduite) ;
+- si YouTube refuse le téléchargement depuis GitHub → la déclaration apparaît quand même en **carte** à côté de toi
+  (vignette, citation traduite, qui, média, date) ;
+- articles → cartes à côté de toi quand tu en parles.
+
+Vidéo sans rapport avec ta dernière recherche : choisis **finder = non** dans *Run workflow*, ou écris `finder: non`
+dans la description de la release → seules tes pièces jointes (et les photos libres) sont utilisées.
+Un lot précis : `finder: 2026-10-24_2144_n16`.
+
+Pour que les extraits YouTube passent vraiment en vidéo : secret `YT_COOKIES` (contenu d'un fichier cookies.txt
+exporté depuis un navigateur connecté à YouTube) ou `YT_PROXY_URL`.
+
 ## 🎬 Ce que fait le montage
 
 | | |
