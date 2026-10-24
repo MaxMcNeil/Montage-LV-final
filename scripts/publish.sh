@@ -21,6 +21,10 @@ for t in $(gh release list --repo "$REPO" --limit 100 --json tagName -q '.[].tag
   echo "Suppression de l'ancienne vidéo déposée : $t"; gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
 done
 
+for t in ${CONSUMED:-}; do  # releases de pièces jointes utilisées par ce montage
+  echo "Pièces jointes utilisées, release supprimée : $t"; gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
+done
+
 DEST=""
 if [ "$MB" -lt "${RELEASE_MAX_MB:-1900}" ]; then
   { echo "🎬 **Ton dernier montage** ($(date -u +%d/%m/%Y)) — remplacé à chaque nouveau montage."; echo;

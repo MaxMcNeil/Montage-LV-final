@@ -25,10 +25,27 @@ def esc(s: str) -> str:
 
 
 class ASS:
-    def __init__(self, orient: str, lang: str):
+    def __init__(self, orient: str, lang: str, face: dict | None = None):
         self.o, self.lang = orient, lang
         self.W, self.H = SIZE[orient]
         self.ev: list[str] = []
+        f = face or {"cy": 0.38, "fh": 0.3}
+        fh = max(0.12, min(0.5, f.get("fh", 0.3)))
+        # zone protégée : du haut des cheveux au bas du menton (marges larges)
+        self.face_top = (f["cy"] - fh * 0.95) * self.H
+        self.face_bot = (f["cy"] + fh * 0.80) * self.H
+        self.cap_top = self.H - (0.17 * self.H if orient == "v" else 64) - 90   # haut des sous-titres
+
+    def text_band_y(self, half: int) -> int:
+        """Centre d'un bandeau de texte (hauteur 2*half) qui ne touche ni le visage ni les sous-titres :
+        sous le visage si la place existe, sinon au-dessus, sinon le plus bas possible."""
+        below = self.face_bot + half + 20
+        if below + half <= self.cap_top:
+            return int(below)
+        above = self.face_top - half - 20
+        if above - half >= 0.04 * self.H:
+            return int(above)
+        return int(self.cap_top - half)
 
     def add(self, t0, t1, style, text, layer=1, ml=0, mr=0, mv=0):
         if t1 - t0 >= 0.05:
@@ -82,7 +99,7 @@ class ASS:
             x, y, w, h = GEOM[self.o][seg.side]["card"]
             return x + 26, W - (x + w) + 26, H - (y + h) + 30, (26 if self.o == "h" else 30)
         if self.o == "v":
-            return 70, 70, 560, 28
+            return 70, 70, int(0.17 * H), 28
         return 220, 220, 64, 44
 
     # ------------------------------------------------------------------ sous-titres de ta voix
@@ -131,8 +148,8 @@ class ASS:
     def hook(self, text: str, t0: float = 0.25, t1: float = 3.6):
         if not text:
             return
-        W, H = self.W, self.H
-        y = int(H * (0.70 if self.o == "h" else 0.30))
+        W = self.W
+        y = self.text_band_y(130) + 30
         line_w = int(W * (0.36 if self.o == "h" else 0.5))
         self.add(t0, t1, "Box", r"{\an7\pos(0,0)\fad(250,300)\1a&H70&\p1}" +
                  f"m 0 {y - 150} l {W} {y - 150} l {W} {y + 110} l 0 {y + 110}" + r"{\p0}", layer=1)
@@ -148,6 +165,8 @@ class ASS:
         W, H = self.W, self.H
         rtl = is_rtl(self.lang)
         y = int(H * (0.12 if self.o == "h" else 0.07))
+        if y + 140 > self.face_top:  # le bandeau du haut toucherait le visage : on le met sous le visage
+            y = self.text_band_y(75) - 60
         x = 96 if not rtl else W - 96
         bw = int(W * (0.46 if self.o == "h" else 0.86))
         bx0 = 0 if not rtl else W - bw - 60
@@ -205,9 +224,9 @@ class ASS:
     def outro(self, total: float, line1: str, line2: str, dur: float = 5.0):
         if total < 20:
             return
-        W, H = self.W, self.H
+        W = self.W
         t0 = total - dur
-        y = int(H * (0.74 if self.o == "h" else 0.42))
+        y = self.text_band_y(125)
         self.add(t0, total, "Box", r"{\an7\pos(0,0)\fad(500,0)\1a&H60&\p1}" +
                  f"m 0 {y - 120} l {W} {y - 120} l {W} {y + 120} l 0 {y + 120}" + r"{\p0}", layer=6)
         self.add(t0 + 0.2, total, "Outro", r"{\an5\pos(" + f"{W // 2},{y - 30}" + r")\fad(500,0)\fscx95\fscy95"

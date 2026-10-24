@@ -15,7 +15,7 @@ on:
         required: false
         default: ""
       pieces_jointes:
-        description: "Photos / vidéos en plus : liens Google Drive (fichiers ou DOSSIER), séparés par des espaces"
+        description: "Photos / vidéos en plus : liens Google Drive (fichiers ou DOSSIER) et/ou tags de releases (ex : Video), séparés par des espaces"
         required: false
         default: ""
       consignes:
@@ -66,9 +66,7 @@ concurrency:
 jobs:
   montage:
     if: >-
-      github.event_name != 'release' || (
-        !startsWith(github.event.release.tag_name, 'out-') && (
-        startsWith(github.event.release.tag_name, 'montage') || contains(github.event.release.name, 'montage')))
+      github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'out-')
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     env:
@@ -93,7 +91,7 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: État de la release → ⏳ EN COURS
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'montage')
         run: |
           bash scripts/release-status.sh "$SRC_TAG" run "montage lancé — [suivre le travail](https://github.com/$REPO/actions/runs/${{ github.run_id }})"
 
@@ -164,6 +162,7 @@ jobs:
           ls -la input input/attachments
 
       - name: Montage (transcription, plan, médias, rendu)
+        if: steps.fetch.outputs.skip != '1'
         env:
           SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
           MONTAGE_COUPER_SILENCES: ${{ inputs.couper_silences }}
@@ -179,10 +178,12 @@ jobs:
             --notes input/notes.txt --options input/options.json --out output --work work
 
       - name: Publier (release « out-montage » ou Google Drive)
+        if: steps.fetch.outputs.skip != '1'
         id: pub
         env:
           SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
           BASE: ${{ steps.fetch.outputs.base }}
+          CONSUMED: ${{ steps.fetch.outputs.consumed }}
         run: bash scripts/publish.sh
 
       - name: Artifact (si ni release ni Drive)

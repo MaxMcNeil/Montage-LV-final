@@ -42,6 +42,11 @@ Le passage est appliqué à la lettre (même au-delà de 25 s). Ça marche aussi
 formulaire *Run workflow*. Le nom doit être celui du fichier joint (majuscules sans importance ; l'extension peut
 même différer).
 
+**Tes extraits peuvent aussi être dans une autre release** (ex. tag `Video`, sans fichier « moi… ») : elle passe en
+**📎 EN ATTENTE** et ses photos/vidéos sont ajoutées automatiquement au prochain montage lancé dans les 3 jours
+(release « montage… » ou *Run workflow*), puis elle est supprimée. Tu peux aussi écrire son tag dans le champ
+« pieces_jointes » du formulaire.
+
 Le titre de ta release affiche l'état : **⏳ EN COURS** → **✅ TERMINÉ** (lien vers le résultat) ou **❌ ÉCHEC** (lien vers l'erreur).
 Le résultat arrive dans la release **🎬 RÉSULTAT — Montage final** : la vidéo + **PLAN.md** (quoi, où, quand, et pourquoi).
 Chaque nouveau montage **remplace** le précédent, et les anciennes vidéos déposées sont supprimées (le dépôt ne grossit pas).

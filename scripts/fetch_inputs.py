@@ -128,15 +128,51 @@ def release_body(tag: str) -> str:
     return body.split("<!-- etat-auto -->")[0]
 
 
-def from_release(tag: str) -> list[Path]:
-    RAW.mkdir(parents=True, exist_ok=True)
+def asset_names(tag: str) -> list[str]:
+    try:
+        j = json.loads(sh(["gh", "release", "view", tag, "--repo", REPO, "--json", "assets"]).stdout)
+        return [a["name"] for a in j.get("assets") or []]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def waiting_releases(exclude: set) -> list[str]:
+    """Releases « pièces jointes en attente » : tag qui ne commence ni par montage ni par out-, sans fichier « moi… »,
+    publiées depuis moins de 3 jours. Leurs photos/vidéos sont ajoutées au montage (puis ces releases sont supprimées)."""
+    import datetime as dt
+    try:
+        j = json.loads(sh(["gh", "release", "list", "--repo", REPO, "--limit", "40", "--json",
+                           "tagName,createdAt,isDraft"]).stdout)
+    except Exception:  # noqa: BLE001
+        return []
+    now = dt.datetime.now(dt.timezone.utc)
+    out_tags = []
+    for r in j:
+        t = r["tagName"]
+        if r.get("isDraft") or t in exclude or t.lower().startswith(("montage", "out-")):
+            continue
+        try:
+            age = now - dt.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
+        except ValueError:
+            continue
+        if age > dt.timedelta(days=3):
+            continue
+        names = asset_names(t)
+        if names and not any(n.lower().startswith("moi") for n in names):
+            out_tags.append(t)
+    return out_tags
+
+
+def from_release(tag: str, dest: Path | None = None) -> list[Path]:
+    dest = dest or RAW
+    dest.mkdir(parents=True, exist_ok=True)
     print(f"Release {tag} : téléchargement des fichiers joints")
     try:
-        sh(["gh", "release", "download", tag, "--repo", REPO, "--dir", RAW, "--clobber"], timeout=3600)
+        sh(["gh", "release", "download", tag, "--repo", REPO, "--dir", dest, "--clobber"], timeout=3600)
     except RuntimeError as e:
         if "no assets" not in str(e).lower():
             print(f"::warning::{e}")
-    return [p for p in RAW.rglob("*") if p.is_file()]
+    return [p for p in dest.rglob("*") if p.is_file()]
 
 
 def from_url(u: str, dest: Path) -> list[Path]:
@@ -216,6 +252,16 @@ def main():
             files += from_url(src, RAW)
         else:
             tag = src
+    if tag and os.environ.get("GITHUB_EVENT_NAME") == "release" and not tag.lower().startswith("montage"):
+        names = asset_names(tag)
+        if not any(n.lower().startswith("moi") for n in names) and not re.search(DRIVE_RE, release_body(tag)):
+            # release sans ta vidéo : c'est une réserve de pièces jointes pour le prochain montage
+            print(f"Release {tag} : pas de fichier « moi… » ni de lien Drive → pièces jointes en attente du prochain montage")
+            out("skip", "1")
+            subprocess.run(["bash", "scripts/release-status.sh", tag, "wait",
+                            "pièces jointes en attente : elles seront ajoutées au prochain montage (release « montage… » "
+                            "ou Run workflow) dans les 3 jours"])
+            return
     if tag:
         out("tag", tag)
         body = release_body(tag)
@@ -237,6 +283,24 @@ def main():
     notes, opts, links = parse_body(body)
     if extra_notes.strip():
         notes = (notes + "\n" + extra_notes).strip()
+    # releases de pièces jointes : citées dans le champ « pieces_jointes » (ex. « Video »), ou en attente (< 3 jours)
+    named = [t for t in re.split(r"[\s,;]+", pieces) if t and not t.startswith("http")]
+    consumed = []
+    for t in dict.fromkeys(named + waiting_releases({tag} if tag else set())):
+        if t == tag:
+            continue
+        got = from_release(t, RAW / f"attente_{re.sub(r'[^A-Za-z0-9_-]', '_', t)}")
+        if got:
+            consumed.append(t)
+            files += got
+            b2, c2 = parse_cuts(release_body(t))
+            cuts.update(c2)
+            n2, _, l2 = parse_body(b2)
+            if n2.strip():
+                notes = (notes + "\n" + n2).strip()
+            links += l2
+            print(f"Pièces jointes prises dans la release « {t} » : {', '.join(p.name for p in got)}")
+    out("consumed", " ".join(consumed))
     # tout est téléchargé d'abord (release, liens Drive de la description, champ « pieces_jointes »)
     first_link: list[Path] = []
     extra = links + re.findall(DRIVE_RE, pieces) + [u for u in re.findall(r"https?://\S+", pieces) if "google.com" not in u]
@@ -251,7 +315,8 @@ def main():
     #   2. sinon la plus grosse vidéo jointe à la release (ou donnée en « source ») ;
     #   3. sinon la vidéo du premier lien Drive de la description.
     mine = big([f for f in files if f.name.lower().startswith("moi")])
-    direct = big([f for f in files if not any(f.is_relative_to(RAW / f"lien{k}") for k in range(len(extra)))])
+    direct = big([f for f in files if not any(f.is_relative_to(RAW / f"lien{k}") for k in range(len(extra)))
+                  and not f.relative_to(RAW).parts[0].startswith("attente_")])
     main_video = (mine or direct or big(first_link) or big(files) or [None])[0]
     if main_video is None:
         die("Aucune vidéo trouvée : joins ta vidéo à la release (ou colle son lien Google Drive partagé dans la description).")

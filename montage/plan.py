@@ -49,6 +49,9 @@ Décide :
      "attachment": "pour attachment : l'identifiant de la pièce jointe (images uniquement)",
      "priority": 1 (indispensable) à 3 (bonus)}}
    - person : seulement une personnalité publique nommée ou désignée sans ambiguïté.
+   - place / thing / event : uniquement quelque chose de CONCRET et photographiable (un lieu, un bâtiment, une
+     organisation connue avec son logo, un objet, un événement célèbre). JAMAIS un concept, un dispositif, une loi, une
+     aide sociale, un sigle administratif (RSA, RQTH…) : pour ceux-là, utilise plutôt "figure" ou "quote", ou rien.
    - figure : un chiffre, un pourcentage, une somme ou une date importante que l'auteur prononce.
    - quote : 1 à 3 maximum dans toute la vidéo, sur les phrases les plus fortes.
    - attachment : place CHAQUE image jointe au moment où l'auteur parle de ce qu'elle montre (sinon ne la place pas).

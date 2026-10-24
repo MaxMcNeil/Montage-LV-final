@@ -219,7 +219,9 @@ def main(argv=None) -> int:
     log.info("Ligne de temps : %d segments, %.0f s → %.0f s", len(segs), info["duration"], total)
 
     # 6) textes à l'écran
-    sub = ASS(orient, lang)
+    face = face_center(src)
+    log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
+    sub = ASS(orient, lang, face)
     if plan.get("hook"):
         sub.hook(plan["hook"])
     chap_times = []
@@ -242,8 +244,6 @@ def main(argv=None) -> int:
     ass_path.write_text(sub.text(), encoding="utf-8")
 
     # 7) rendu
-    face = face_center(src)
-    log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
     fonts = Path(a.fonts).resolve() if Path(a.fonts).is_dir() else None
     ctx = Ctx(src.resolve(), info, face, orient, work.resolve(), ass_path, fonts)
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))

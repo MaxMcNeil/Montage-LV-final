@@ -122,6 +122,18 @@ def _commons_file(name: str) -> dict | None:
     return None
 
 
+def _relevant(fname: str, title: str, query: str) -> bool:
+    """L'image d'un article Wikipédia n'est pas toujours celle du sujet (ex. article « RQTH » illustré par la photo
+    d'un conseil départemental). On exige qu'un mot du sujet figure dans le nom du fichier. L'image officielle
+    Wikidata (P18), elle, est toujours celle du sujet."""
+    from .util import norm
+    stop = {"de", "la", "le", "les", "des", "du", "et", "en", "the", "of", "and", "pour", "sur", "file", "jpg", "png",
+            "svg", "jpeg", "logo"}
+    words = {w for w in norm(f"{title} {query}").split() if len(w) > 2 and w not in stop}
+    fn = set(norm(re.sub(r"\.[a-z]+$", "", fname, flags=re.I)).split())
+    return bool(words & fn)
+
+
 def wiki_image(query: str, langs: list[str], dest: Path) -> dict | None:
     """Photo libre de droits de l'article Wikipédia (image principale, ou P18 Wikidata). Seules les images hébergées
     sur Wikimedia Commons (licences libres) sont utilisées ; le crédit est affiché sous la photo."""
@@ -146,8 +158,8 @@ def wiki_image(query: str, langs: list[str], dest: Path) -> dict | None:
                         continue
                 break
             names = []
-            if page.get("pageimage"):
-                names.append(page["pageimage"])
+            if page.get("pageimage") and _relevant(page["pageimage"], page.get("title", ""), query):
+                names.append(page["pageimage"])  # image d'illustration : gardée seulement si elle parle du sujet
             qid = (page.get("pageprops") or {}).get("wikibase_item")
             if qid:
                 w = _get("https://www.wikidata.org/w/api.php", {"action": "wbgetclaims", "format": "json", "entity": qid,
