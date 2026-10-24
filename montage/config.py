@@ -126,7 +126,7 @@ DEFAULTS = {
     "couper_silences": "doux",      # doux | dynamique | non
     "sous_titres": "oui",           # oui | non
     "recherche_presse": "oui",      # oui | non  (Vid-o-presse-finder)
-    "max_inserts": "3",             # vidéos insérées au maximum (pendant tes silences)
+    "max_inserts": "6",             # extraits de presse (Finder) insérés au maximum (pendant tes silences)
     "duree_max_insert": "25",       # secondes max par vidéo insérée (coupée en fin de phrase)
     "images_web": "oui",            # photos libres de droits (Wikimedia Commons) des personnes / lieux / choses citées
     "effets_sonores": "oui",        # petits souffles discrets aux transitions (pas de musique)

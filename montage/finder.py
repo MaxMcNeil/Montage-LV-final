@@ -83,8 +83,10 @@ Choisis UNIQUEMENT ce qui correspond à ce que dit l'auteur (même fait, même d
 - "inserts" : au plus {max_ins} déclarations vidéo, insérées pendant un silence de l'auteur, juste APRÈS la phrase où il
   en parle ou l'annonce : [{{"clip": numéro, "after": numéro de phrase, "s0": première phrase où il en parle,
   "quote": "la déclaration traduite si besoin en « {lang} », fidèle, 12 à 30 mots"}}]. Jamais deux après la même phrase,
-  au moins 4 phrases d'écart entre deux insertions, aucune avant la phrase 2.
-- "articles" : au plus 4 articles affichés à côté de l'auteur quand il évoque ce qu'ils racontent :
+  au moins 3 phrases d'écart entre deux insertions, aucune avant la phrase 2. Une déclaration longue peut être
+  utilisée en PLUSIEURS morceaux si l'auteur en commente plusieurs parties : répète le même numéro avec des
+  "part" différents (1, 2…). UNIQUEMENT ce qui est en totale concordance avec ce que dit l'auteur à cet endroit.
+- "articles" : au plus 6 articles affichés à côté de l'auteur quand il évoque ce qu'ils racontent :
   [{{"article": numéro, "s0": numéro de phrase, "headline": "titre traduit en « {lang} » si besoin (sinon le titre)"}}].
   Pas deux articles sur la même phrase ni sur la phrase d'une insertion.
 Si rien ne correspond, renvoie des listes vides. Réponds en JSON : {{"inserts": [...], "articles": [...]}}."""
@@ -114,24 +116,25 @@ def match(ai, sents: list, lot: dict, lang: str, max_ins: int) -> dict:
             return int(v)
         except (TypeError, ValueError):
             return None
-    afters, used_clips = [], set()
+    afters = []
     for x in j.get("inserts") or []:
         c, after = ii(x.get("clip")), ii(x.get("after"))
-        if c is None or not 0 <= c < len(lot["clips"]) or c in used_clips or after is None or not 1 <= after < n:
+        if c is None or not 0 <= c < len(lot["clips"]) or after is None or not 1 <= after < n:
             continue
-        if any(abs(after - a) < 4 for a in afters) or len(afters) >= max(1, max_ins):
+        if sum(1 for y in out["inserts"] if y["clip"] == c) >= 3:   # au plus 3 morceaux d'une même déclaration
+            continue
+        if any(abs(after - a) < 3 for a in afters) or len(afters) >= max(1, max_ins):
             continue
         s0 = ii(x.get("s0"))
         s0 = s0 if s0 is not None and 0 <= s0 <= after else after
         afters.append(after)
-        used_clips.add(c)
         out["inserts"].append({"clip": c, "after": after, "s0": s0, "quote": str(x.get("quote") or "").strip()[:300]})
     taken = set(afters)
     for x in j.get("articles") or []:
         a, s0 = ii(x.get("article")), ii(x.get("s0"))
         if a is None or not 0 <= a < len(lot["articles"]) or s0 is None or not 0 <= s0 < n or s0 in taken:
             continue
-        if a in {y["article"] for y in out["articles"]} or len(out["articles"]) >= 4:
+        if a in {y["article"] for y in out["articles"]} or len(out["articles"]) >= 6:
             continue
         taken.add(s0)
         out["articles"].append({"article": a, "s0": s0, "headline": str(x.get("headline") or "").strip()[:200]})

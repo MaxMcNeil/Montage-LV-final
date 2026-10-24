@@ -160,11 +160,11 @@ def main(argv=None) -> int:
 
     # 4) extraits vidéo insérés pendant tes silences
     maxd = float(opts["duree_max_insert"] or 25)
-    max_ins = int(opts["max_inserts"] or 3)
+    max_ins = int(opts["max_inserts"] or 6)
     inserts = []
     for k, ins in enumerate(plan["inserts"]):
         x = by_id.get(ins["attachment"])
-        if not x or len(inserts) >= max_ins + 5:  # les vidéos de l'auteur passent avant la limite
+        if not x or len(inserts) >= 12:  # tes vidéos passent avant la limite des extraits de presse
             continue
         s_ = x.get("sentences") or []
         want0 = ins.get("clip_start") or 0.0
@@ -196,8 +196,20 @@ def main(argv=None) -> int:
             lot_info = {"lot": lot["lot"], "age": lot["age_days"], "clips": len(lot["clips"]),
                         "articles": len(lot["articles"]), "placed": m, "video_ok": 0, "cards": 0}
             used = set()
+            uses = {}
+            for x in m["inserts"]:
+                uses[x["clip"]] = uses.get(x["clip"], 0) + 1
+            seen_part = {}
             for k, x in enumerate(m["inserts"]):
-                c = lot["clips"][x["clip"]]
+                c = dict(lot["clips"][x["clip"]])
+                n_parts = uses[x["clip"]]
+                if n_parts > 1:  # déclaration utilisée en plusieurs morceaux : chacun sa portion, dans l'ordre
+                    part = seen_part.get(x["clip"], 0)
+                    seen_part[x["clip"]] = part + 1
+                    a_, b_ = float(c.get("in", c.get("start", 0))), float(c.get("out", c.get("end", 0)))
+                    step = (b_ - a_) / n_parts
+                    c["in"] = c["start"] = a_ + part * step
+                    c["out"] = c["end"] = a_ + (part + 1) * step
                 asset = clip_insert([c], orient, work, f"finder{k}", lang, ai, maxd, used)
                 if asset:
                     cr = asset["credit"]

@@ -90,7 +90,7 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         nxt = sents[ins["after"] + 1]["t0"] if ins["after"] + 1 < len(sents) else keep[-1][1]
         t = q(min(s["t1"] + 0.14, max(s["t1"], nxt - 0.06)))
         t = _snap(t, keep)
-        if t is None or any(abs(t - p["t"]) < 15 for p in pts):
+        if t is None or any(abs(t - p["t"]) < 8 for p in pts):
             continue
         pts.append({"t": t, **ins})
     # 2) médias à côté de toi : fenêtre calée sur le mot déclencheur
@@ -127,7 +127,7 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
             continue
         if any(not (en + 2.2 <= o["st"] or st >= o["en"] + 2.2) for o in chosen):
             continue
-        if c["v"]["kind"] != "attachment" and cover + (en - st) > 0.5 * speech:
+        if c["v"]["kind"] != "attachment" and cover + (en - st) > 0.6 * speech:
             continue
         chosen.append({"v": c["v"], "st": q(st), "en": q(en)})
         cover += en - st

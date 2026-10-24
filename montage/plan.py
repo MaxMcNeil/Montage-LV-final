@@ -36,7 +36,8 @@ Décide :
 3. "chapters" : {chapters_rule} — [{{"s": numéro de la 1re phrase, "title": "2 à 5 mots"}}]. La 1re commence à la phrase 0.
 4. "visuals" : ce qui apparaît À CÔTÉ de l'auteur pendant qu'il parle. UNIQUEMENT quand ce qui est dit l'appelle
    précisément (un nom prononcé, un lieu, une institution, un chiffre, un article de presse évoqué).
-   Environ un visuel toutes les {every} secondes de parole, jamais deux à moins de 6 secondes d'écart, aucun dans les
+   Jusqu'à un visuel toutes les {every} secondes de parole — mais UNIQUEMENT en totale concordance avec la phrase
+   (mieux vaut moins de visuels qu'un visuel approximatif) —, jamais deux à moins de 6 secondes d'écart, aucun dans les
    3 premières secondes. Chaque visuel :
    {{"kind": "person|place|thing|event|figure|quote|attachment",
      "s0": première phrase concernée, "s1": dernière phrase concernée (s1-s0 <= 2),
@@ -55,7 +56,9 @@ Décide :
    - figure : un chiffre, un pourcentage, une somme ou une date importante que l'auteur prononce.
    - quote : 1 à 3 maximum dans toute la vidéo, sur les phrases les plus fortes.
    - attachment : place CHAQUE image jointe au moment où l'auteur parle de ce qu'elle montre (sinon ne la place pas).
-5. "inserts" : les VIDÉOS jointes, insérées pendant un silence de l'auteur (il disparaît le temps de l'extrait) :
+5. "inserts" : des passages des VIDÉOS jointes, insérés pendant un silence de l'auteur (il disparaît le temps de
+   l'extrait). Une même vidéo jointe peut fournir PLUSIEURS passages (jusqu'à 5), chacun placé là où l'auteur parle
+   précisément de ce que dit ou montre ce passage ; au moins 3 phrases d'écart entre deux insertions :
    [{{"attachment": "id", "after": numéro de la phrase après laquelle on l'insère (quand l'auteur vient d'en parler ou
    de l'annoncer), "clip_start": seconde de début dans la vidéo jointe, "clip_end": seconde de fin}}]. L'extrait dure
    au plus {max_insert} s, commence et finit sur une phrase complète de la vidéo jointe.
@@ -94,7 +97,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
     text = "\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"]}' for s in sents)
     if len(text) > 120_000:  # vidéo très longue : on abrège les phrases pour rester dans la limite de l'IA
         text = "\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"][:160]}' for s in sents)
-    every = 25 if speech < 600 else 32
+    every = 15 if speech < 600 else 20
     prompt = PROMPT.format(
         lang=lang, lang_note=" (arabe littéraire simple)" if lang == "ar" else "", sentences=text,
         attachments=describe_attachments(att), notes=(notes or "(aucune)")[:2000],
