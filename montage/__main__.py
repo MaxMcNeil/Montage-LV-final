@@ -291,13 +291,19 @@ def main(argv=None) -> int:
     face = face_center(src)
     log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
     sub = ASS(orient, lang, face)
+    h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
+    hook_end = h0 + 3.35 if plan.get("hook") else 0.0
     if plan.get("hook"):
-        h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
-        sub.hook(plan["hook"], h0, h0 + 3.35)
+        sub.hook(plan["hook"], h0, hook_end)
     chap_times = []
     for i, c in enumerate(plan["chapters"]):
         t = out_time(segs, sents[c["s"]]["t0"]) if c["s"] < len(sents) else None
-        if t is None or t < 4.5 or t > total - 8:
+        # le 1er chapitre est couvert par l'accroche ; jamais deux textes en même temps
+        if t is None or i == 0 or c["s"] <= (sents[0]["i"] if sents else 0) or t < h0 + 1.0 or t > total - 8:
+            continue
+        if t < hook_end + 0.4:
+            t = hook_end + 0.4
+        if chap_times and t < chap_times[-1] + 4.5:
             continue
         sub.chapter(t, i + 1, c["title"])
         chap_times.append(t)
