@@ -338,6 +338,10 @@ def main():
     shutil.move(str(main_video), dst)
     shutil.rmtree(RAW, ignore_errors=True)
     (IN / "notes.txt").write_text(notes, encoding="utf-8")
+    # tag de release : « montage-solo-… » = sans Vid-o-presse-finder (juste tes pièces jointes)
+    if tag and "finder" not in opts and re.search(r"solo|sans", tag.lower()):
+        opts["finder"] = "non"
+        print(f"Tag « {tag} » : montage SANS Vid-o-presse-finder")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
     (IN / "cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
     for k, (a, b) in cuts.items():

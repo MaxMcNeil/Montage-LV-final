@@ -64,8 +64,9 @@ horodatés + articles) ; l'IA garde ceux qui correspondent à ce que tu dis et l
   (vignette, citation traduite, qui, média, date) ;
 - articles → cartes à côté de toi quand tu en parles.
 
-Vidéo sans rapport avec ta dernière recherche : choisis **finder = non** dans *Run workflow*, ou écris `finder: non`
-dans la description de la release → seules tes pièces jointes (et les photos libres) sont utilisées.
+Vidéo sans rapport avec ta dernière recherche (seules tes pièces jointes et les photos libres sont utilisées) :
+- **Release** : tag `montage-solo-001`, `montage-solo-002`… (tag `montage-001` = avec le Finder) ;
+- **Run workflow** : menu déroulant **finder** → `non`.
 Un lot précis : `finder: 2026-10-24_2144_n16`.
 
 Pour que les extraits YouTube passent vraiment en vidéo : secret `YT_COOKIES` (contenu d'un fichier cookies.txt
