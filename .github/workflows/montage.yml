@@ -41,10 +41,11 @@ on:
         description: "Nombre max d'extraits vidéo de presse insérés (tes vidéos jointes passent toujours)"
         required: false
         default: ""
-      langue:
-        description: "Langue de la vidéo (vide = détectée : fr, ar, it, en…)"
-        required: false
-        default: ""
+      ouverture_choc:
+        description: "Commencer par le passage le plus choquant de la vidéo jointe (release / Drive)"
+        type: choice
+        options: [non, oui]
+        default: non
       effets_sonores:
         description: "Petits souffles discrets aux transitions (aucune musique)"
         type: choice
@@ -171,7 +172,7 @@ jobs:
           MONTAGE_SOUS_TITRES: ${{ inputs.sous_titres }}
           MONTAGE_RECHERCHE_PRESSE: ${{ inputs.recherche_presse }}
           MONTAGE_MAX_INSERTS: ${{ inputs.max_inserts }}
-          MONTAGE_LANGUE: ${{ inputs.langue }}
+          MONTAGE_OUVERTURE_CHOC: ${{ inputs.ouverture_choc }}
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
           MONTAGE_FINDER: ${{ inputs.finder }}
         run: |

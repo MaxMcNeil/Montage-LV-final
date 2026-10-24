@@ -72,6 +72,15 @@ Un lot précis : `finder: 2026-10-24_2144_n16`.
 Pour que les extraits YouTube passent vraiment en vidéo : secret `YT_COOKIES` (contenu d'un fichier cookies.txt
 exporté depuis un navigateur connecté à YouTube) ou `YT_PROXY_URL`.
 
+## ⚡ Ouverture choc (facultatif)
+
+*Run workflow* → menu **ouverture_choc** → `oui` (par défaut `non`) ; ou `ouverture_choc: oui` dans la description
+d'une release ou dans les consignes. La vidéo finale **commence** alors par le passage le plus fort / choquant
+(4 à 12 s, phrases complètes, sous-titré) de ta **vidéo jointe** (release ou Drive), qui surgit du noir ; puis tu
+apparais et l'accroche s'affiche. L'IA choisit le passage en lisant la transcription de l'extrait ; un passage imposé
+(`fichier.mp4 = 1:20-1:45`) sert de repli sans IA.
+La langue se règle désormais dans les consignes : `langue: ar` (sinon détectée automatiquement).
+
 ## 🎬 Ce que fait le montage
 
 | | |

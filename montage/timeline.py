@@ -77,7 +77,7 @@ def trigger_time(words: list, s: dict, trig: str) -> float:
     return s["t0"]
 
 
-def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient) -> tuple[list, list]:
+def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -180,6 +180,8 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         else:
             split_segs.append(s)
     segs = split_segs
+    if opener:  # ouverture choc : le passage le plus fort de l'extrait joint, avant que tu apparaisses
+        segs.insert(0, Segment("insert", insert={"t": keep[0][0], "after": -1, "asset": opener, "opener": True}))
     # 6) durées en images
     t = 0.0
     for s in segs:

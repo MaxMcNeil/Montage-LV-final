@@ -195,18 +195,24 @@ def freeze(ctx: Ctx, t: float, out: Path) -> Path:
 def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int):
     ins = seg.insert["asset"]
     N = seg.n
+    opener = bool(seg.insert.get("opener"))
     pa = freeze(ctx, prev_t, ctx.work / f"freeze_{k}_a.png")
     pb = freeze(ctx, next_t, ctx.work / f"freeze_{k}_b.png")
     g = Graph()
     i_clip = g.inp("-i", ins["video"])
-    i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pa)
+    if opener:  # ouverture : l'extrait surgit du noir
+        i_a = g.inp("-f", "lavfi", "-t", "1", "-i", f"color=c=black:s={ctx.W}x{ctx.H}:r={FPS}")
+    else:
+        i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pa)
     i_b = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pb)
     norm = f"fps={FPS},settb=1/{FPS},format=yuv420p"
     din, dout = min(0.55, N / FPS / 4), min(0.45, N / FPS / 4)
     g.add(f"[{i_clip}:v]{norm},setpts=N/{FPS}/TB,tpad=stop_mode=clone:stop_duration=1,trim=end_frame={N}[cl]")
     g.add(f"[{i_a}:v]{norm}[fa]")
     g.add(f"[{i_b}:v]{norm}[fb]")
-    g.add(f"[fa][cl]xfade=transition=smoothleft:duration={din:.3f}:offset=0[x1]")
+    if opener:
+        din = min(0.3, din)
+    g.add(f"[fa][cl]xfade=transition={'fade' if opener else 'smoothleft'}:duration={din:.3f}:offset=0[x1]")
     g.add(f"[x1][fb]xfade=transition=smoothright:duration={dout:.3f}:offset={N / FPS - dout:.4f}[x2]")
     g.add(f"[x2]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
     g.run(out, N, "out", out.with_suffix(".txt"))

@@ -48,7 +48,7 @@ def options(path: str | None) -> dict:
     # valeurs écrites librement dans la description de la release
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا"}
-    for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin"):
+    for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
@@ -271,9 +271,17 @@ def main(argv=None) -> int:
         ai.save_quota()
     inserts = inserts[:max_ins + sum(1 for i in plan["inserts"])]
 
+    # 4c) ouverture choc : le passage le plus fort de l'extrait joint, en tout premier
+    opener = None
+    if opts.get("ouverture_choc") == "oui":
+        opener = pick_opener(ai, att, lang, orient, work, plan.get("hook", ""))
+        if opener is None:
+            log.warning("Ouverture choc demandée mais aucune vidéo jointe utilisable : la vidéo commence normalement")
+
     # 5) ligne de temps
     keep = keep_ranges(words, tr.get("silences") or [], info["duration"], opts["couper_silences"])
-    segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient)
+    segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
+                            opener=opener)
     if not segs:
         raise SystemExit("Rien à monter (vidéo vide ?)")
     total = segs[-1].out0 + segs[-1].dur
@@ -284,7 +292,8 @@ def main(argv=None) -> int:
     log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
     sub = ASS(orient, lang, face)
     if plan.get("hook"):
-        sub.hook(plan["hook"])
+        h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
+        sub.hook(plan["hook"], h0, h0 + 3.35)
     chap_times = []
     for i, c in enumerate(plan["chapters"]):
         t = out_time(segs, sents[c["s"]]["t0"]) if c["s"] < len(sents) else None
@@ -318,6 +327,52 @@ def main(argv=None) -> int:
     return 0
 
 
+OPENER_PROMPT = """Une vidéo face caméra (langue « {lang} ») doit commencer par une OUVERTURE CHOC : le passage le plus
+fort, le plus choquant ou le plus saisissant d'une des vidéos jointes ci-dessous (phrase qui choque, chiffre terrible,
+aveu, accusation, moment d'émotion), compréhensible seul, qui donne envie de rester. Sujet de la vidéo : {hook}
+
+{videos}
+
+Choisis UN passage de 4 à 12 secondes, qui commence et finit sur une phrase complète.
+Réponds en JSON : {{"video": "id", "start": secondes, "end": secondes, "why": "pourquoi c'est le plus fort"}}."""
+
+
+def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str):
+    """Passage le plus choquant (4 à 12 s) des vidéos jointes, préparé comme un extrait inséré."""
+    vids = [x for x in att if x["kind"] == "video" and x.get("duration", 0) >= 3]
+    if not vids:
+        return None
+    pick = None
+    if ai and ai.ok and any(x.get("sentences") for x in vids):
+        txt = "\n".join(f'- id "{x["id"]}" « {x["name"]} » ({x["duration"]:.0f} s) : ' +
+                        " / ".join(f'[{s["t0"]:.1f}-{s["t1"]:.1f}s] {s["text"]}' for s in (x.get("sentences") or [])[:120])
+                        for x in vids)
+        j = ai.json(OPENER_PROMPT.format(lang=lang, hook=hook or "(voir les vidéos)", videos=txt))
+        if isinstance(j, dict):
+            x = next((v for v in vids if v["id"] == str(j.get("video"))), None)
+            try:
+                a0, b0 = float(j.get("start")), float(j.get("end"))
+            except (TypeError, ValueError):
+                a0 = b0 = 0.0
+            if x and b0 > a0:
+                pick = (x, a0, b0, str(j.get("why") or ""))
+    if pick is None:  # sans IA : le début du passage imposé, sinon le début de la vidéo jointe
+        x = vids[0]
+        a0 = (x.get("cut") or [0.0])[0]
+        pick = (x, a0, a0 + 8.0, "")
+    x, a0, b0 = pick[0], pick[1], pick[2]
+    s_ = x.get("sentences") or []
+    a, b = choose_bounds(s_, a0, b0, 12.0, x["duration"]) if s_ else (max(0.0, a0), min(x["duration"], b0))
+    b = min(b, a + 15.0)
+    asset = prepare_insert(Path(x["path"]), a, b, orient, work, "insert_opener", lang, ai, s_ if s_ else None, x.get("lang"))
+    if asset:
+        asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
+        asset["source"] = f"OUVERTURE CHOC — pièce jointe « {x['name']} » ({tc(a)} → {tc(b)})" + \
+            (f" — {pick[3]}" if pick[3] else "")
+        log.info("Ouverture choc : %s de %.1f s à %.1f s", x["name"], a, b)
+    return asset
+
+
 def _pretty(name: str) -> str:
     """Nom de fichier lisible (« ministre_economie.jpg » → « Ministre economie ») ; vide si nom d'appareil photo."""
     s = re.sub(r"[_\-.]+", " ", re.sub(r"^\d{2}_", "", Path(name).stem)).strip()
@@ -346,7 +401,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     except OSError:
         pass
     if plan.get("hook"):
-        L.append(f"- Accroche (0:00 → 0:03) : « {plan['hook']} »")
+        h0 = segs[0].dur if segs and segs[0].kind == "insert" and segs[0].insert.get("opener") else 0.0
+        L.append(f"- Accroche ({tc(h0)} → {tc(h0 + 3.5)}) : « {plan['hook']} »")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         L.append(f"- Vid-o-presse-finder : lot **{lot_info['lot']}**{age} — {lot_info['clips']} extrait(s) et "
@@ -387,8 +443,12 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | {what} : {lab} | {side} | « {said} » | {v.get('source', '—')} |")
         elif s.kind == "insert":
             a = s.insert["asset"]
-            said = sents[s.insert["after"]]["text"][:110] if s.insert["after"] < len(sents) else ""
+            said = sents[s.insert["after"]]["text"][:110] if 0 <= s.insert["after"] < len(sents) else ""
             tr = " (sous-titres traduits)" if a.get("translated") else ""
+            if s.insert.get("opener"):
+                L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | **Ouverture choc**{tr} | plein écran, avant que tu "
+                         f"apparaisses | passage le plus fort de l'extrait | {a.get('source', '—')} |")
+                continue
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | Extrait vidéo{tr} | plein écran, tu disparais "
                      f"(pendant ton silence) | après « {said} » | {a.get('source', '—')} |")
     used_att = {c["v"].get("attachment") for c in chosen} | {s.insert.get("attachment") for s in segs if s.kind == "insert"}
