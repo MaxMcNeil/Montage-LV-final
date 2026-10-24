@@ -1,0 +1,203 @@
+name: Montage final
+
+# Dépose ta vidéo dans une Release dont le tag commence par « montage » (montage-001, montage-002…).
+# Joins aussi tes photos / vidéos : elles seront placées au bon moment. Vidéo trop lourde : lien Google Drive dans
+# la description. Tu peux écrire des consignes et des réglages dans la description (voir README).
+# Résultat : release « 🎬 RÉSULTAT — Montage final » (ou Google Drive si > 1,9 Go) + PLAN.md (quoi / où / quand).
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      source:
+        description: "Vidéo : lien Google Drive, lien direct ou tag de release (vide = dernière release « montage… »)"
+        required: false
+        default: ""
+      pieces_jointes:
+        description: "Photos / vidéos en plus : liens Google Drive (fichiers ou DOSSIER), séparés par des espaces"
+        required: false
+        default: ""
+      consignes:
+        description: "Consignes pour le monteur (ex : la photo 2 est le ministre ; insiste sur les chiffres)"
+        required: false
+        default: ""
+      couper_silences:
+        description: "Raccourcir tes silences"
+        type: choice
+        options: [défaut, doux, dynamique, non]
+        default: défaut
+      sous_titres:
+        description: "Sous-titres de ta voix"
+        type: choice
+        options: [défaut, oui, non]
+        default: défaut
+      recherche_presse:
+        description: "Chercher extraits officiels et articles (Vid-o-presse-finder)"
+        type: choice
+        options: [défaut, oui, non]
+        default: défaut
+      max_inserts:
+        description: "Nombre max d'extraits vidéo de presse insérés (tes vidéos jointes passent toujours)"
+        required: false
+        default: ""
+      langue:
+        description: "Langue de la vidéo (vide = détectée : fr, ar, it, en…)"
+        required: false
+        default: ""
+      effets_sonores:
+        description: "Petits souffles discrets aux transitions (aucune musique)"
+        type: choice
+        options: [défaut, oui, non]
+        default: défaut
+      fin:
+        description: "Carte de fin « merci / abonnez-vous »"
+        type: choice
+        options: [défaut, oui, non]
+        default: défaut
+
+permissions:
+  contents: write
+
+concurrency:
+  group: montage-${{ github.event.release.tag_name || inputs.source || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  montage:
+    if: >-
+      github.event_name != 'release' || (
+        !startsWith(github.event.release.tag_name, 'out-') && (
+        startsWith(github.event.release.tag_name, 'montage') || contains(github.event.release.name, 'montage')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    env:
+      GH_TOKEN: ${{ github.token }}
+      REPO: ${{ github.repository }}
+      SRC_TAG: ${{ github.event.release.tag_name }}
+      # IA gratuite : mêmes secrets que Vid-o-presse-finder (rotation des clés, bascule automatique)
+      GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+      GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+      CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
+      OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+      FALLBACK_LLM_KEYS: ${{ secrets.FALLBACK_LLM_KEYS }}
+      YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+      GUARDIAN_API_KEYS: ${{ secrets.GUARDIAN_API_KEYS }}
+      NYT_API_KEYS: ${{ secrets.NYT_API_KEYS }}
+      YT_PROXY_URL: ${{ secrets.YT_PROXY_URL }}
+      RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+      QF_CACHE_DIR: .cache
+      QF_QUOTA_FILE: state/quota.json
+      PYTHONPATH: vpf
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: État de la release → ⏳ EN COURS
+        if: github.event_name == 'release'
+        run: |
+          bash scripts/release-status.sh "$SRC_TAG" run "montage lancé — [suivre le travail](https://github.com/$REPO/actions/runs/${{ github.run_id }})"
+
+      - name: Libérer de la place sur le disque (vidéos lourdes)
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL /usr/local/share/boost &
+          sleep 1; echo "nettoyage lancé en arrière-plan"
+
+      - name: Cache des paquets apt
+        uses: actions/cache@v5
+        with:
+          path: ~/apt-archives
+          key: apt-montage-v1-${{ runner.os }}
+
+      - name: Outils (ffmpeg + libass, polices Noto dont l'arabe)
+        run: |
+          set -euo pipefail
+          PKGS="ffmpeg fonts-noto-core fontconfig libraqm0 libfribidi0 jq"
+          need=""; for p in $PKGS; do dpkg -s "$p" >/dev/null 2>&1 || need="$need $p"; done
+          if [ -n "$need" ]; then
+            mkdir -p ~/apt-archives/partial
+            APT="-o Dir::Cache::Archives=$HOME/apt-archives -o Acquire::Retries=4 -o Acquire::http::Timeout=25"
+            ok=0
+            for i in 1 2 3; do
+              sudo timeout 300 apt-get update -qq $APT || true
+              if sudo timeout 900 apt-get install -y -qq --no-install-recommends $APT $need; then ok=1; break; fi
+              echo "::warning::apt : tentative $i échouée"; sleep 5
+            done
+            sudo chown -R "$USER" ~/apt-archives || true; sudo rm -f ~/apt-archives/lock || true
+            [ "$ok" = 1 ] || { echo "::error::Installation de ffmpeg impossible"; exit 1; }
+          fi
+          ffmpeg -hide_banner -filters | grep -qw ass || { echo "::error::ffmpeg sans libass"; exit 1; }
+          fc-cache -f >/dev/null; fc-list | grep -cE "Noto(Sans|Serif|NaskhArabic|SansArabic)-Bold" || true
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Moteur IA et recherche presse (Vid-o-presse-finder)
+        run: |
+          git clone -q --depth 1 https://github.com/MaxMcNeil/Vid-o-presse-finder vpf \
+            || echo "::warning::Vid-o-presse-finder indisponible : IA en mode simple, pas de recherche presse"
+          [ -f vpf/requirements.txt ] && pip install -q -r vpf/requirements.txt || true
+          pip install -q -r requirements.txt
+          pip install -q -U yt-dlp
+
+      - name: Caches (modèle de transcription locale, réponses IA, état des quotas)
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cache/huggingface
+            .cache
+            state
+          key: montage-cache-${{ github.run_id }}
+          restore-keys: montage-cache-
+
+      - name: Récupérer la vidéo et les pièces jointes
+        id: fetch
+        env:
+          SOURCE: ${{ inputs.source }}
+          PIECES: ${{ inputs.pieces_jointes }}
+          NOTES: ${{ inputs.consignes }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python3 scripts/fetch_inputs.py
+          ls -la input input/attachments
+
+      - name: Montage (transcription, plan, médias, rendu)
+        env:
+          SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
+          MONTAGE_COUPER_SILENCES: ${{ inputs.couper_silences }}
+          MONTAGE_SOUS_TITRES: ${{ inputs.sous_titres }}
+          MONTAGE_RECHERCHE_PRESSE: ${{ inputs.recherche_presse }}
+          MONTAGE_MAX_INSERTS: ${{ inputs.max_inserts }}
+          MONTAGE_LANGUE: ${{ inputs.langue }}
+          MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
+          MONTAGE_FIN: ${{ inputs.fin }}
+        run: |
+          mkdir -p fonts state
+          python3 -m montage --video "${{ steps.fetch.outputs.video }}" --attachments input/attachments \
+            --notes input/notes.txt --options input/options.json --out output --work work
+
+      - name: Publier (release « out-montage » ou Google Drive)
+        id: pub
+        env:
+          SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
+          BASE: ${{ steps.fetch.outputs.base }}
+        run: bash scripts/publish.sh
+
+      - name: Artifact (si ni release ni Drive)
+        if: steps.pub.outputs.artifact == '1'
+        uses: actions/upload-artifact@v6
+        with:
+          name: montage-final
+          path: |
+            output/montage-*.mp4
+            output/PLAN.md
+          retention-days: 14
+
+      - name: État de la release → ❌ ÉCHEC
+        if: failure()
+        env:
+          SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
+        run: |
+          bash scripts/release-status.sh "$SRC_TAG" fail "voir l'erreur : [journal du run](https://github.com/$REPO/actions/runs/${{ github.run_id }})"

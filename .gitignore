@@ -1,0 +1,9 @@
+input/
+work/
+output/
+vpf/
+fonts/*.ttf
+.cache/
+state/
+__pycache__/
+*.pyc

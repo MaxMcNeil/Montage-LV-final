@@ -1,0 +1,10 @@
+# Versions bornées : une future version majeure ne cassera pas le montage.
+numpy>=1.26,<3
+Pillow>=10.3,<13
+opencv-python-headless>=4.8,<5     # détection du visage (OpenCV 5 a retiré le détecteur utilisé)
+requests>=2.31,<3
+faster-whisper>=1.1,<2             # transcription locale gratuite si Groq est indisponible
+gdown>=5.1,<6                      # Google Drive sans compte (lien public)
+arabic-reshaper>=3.0,<4
+python-bidi>=0.4,<1
+pillow-heif>=0.16,<2               # photos d'iPhone (.heic)
