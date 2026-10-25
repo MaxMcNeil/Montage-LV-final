@@ -76,11 +76,14 @@ jobs:
       SRC_TAG: ${{ github.event.release.tag_name }}
       # IA gratuite : mêmes secrets que Vid-o-presse-finder (rotation des clés, bascule automatique)
       GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+      GEMINI_API_KEYS_PLUS: ${{ secrets.GEMINI_API_KEYS_PLUS }}
       GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+      GROQ_API_KEYS_PLUS: ${{ secrets.GROQ_API_KEYS_PLUS }}
       CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
       OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
       FALLBACK_LLM_KEYS: ${{ secrets.FALLBACK_LLM_KEYS }}
       YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+      YOUTUBE_API_KEYS_PLUS: ${{ secrets.YOUTUBE_API_KEYS_PLUS }}
       GUARDIAN_API_KEYS: ${{ secrets.GUARDIAN_API_KEYS }}
       NYT_API_KEYS: ${{ secrets.NYT_API_KEYS }}
       YT_PROXY_URL: ${{ secrets.YT_PROXY_URL }}
