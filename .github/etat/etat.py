@@ -232,9 +232,13 @@ def collect() -> list[dict]:
         for r in done:
             if r.get("conclusion") == "success":
                 break
-            fails += 1
+            if r.get("conclusion") != "cancelled":
+                fails += 1
         if ok:
             item["icon"], item["texte"] = "✅", f"dernier lancement réussi ({item['last']})"
+        elif last.get("conclusion") == "cancelled":
+            item["icon"], item["texte"] = "ℹ️", (f"dernier lancement annulé ({item['last']}) — à la main ou remplacé par un plus récent"
+                                                + (f" ; dernier succès le {when(last_ok['updated_at'])}" if last_ok else ""))
         else:
             item["icon"] = "❌" if fails >= 2 or last.get("conclusion") == "failure" else "⚠️"
             item["texte"] = (f"dernier lancement en échec ({item['last']}, {last.get('conclusion')})"
