@@ -297,7 +297,7 @@ def main(argv=None) -> int:
         log.info("Images noires au début de ta vidéo (%.2f s) : retirées", b0)
     keep = keep_ranges(words, tr.get("silences") or [], info["duration"], opts["couper_silences"], b0)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
-                            opener=opener)
+                            opener=opener, sil=tr.get("silences") or [])
     if not segs:
         raise SystemExit("Rien à monter (vidéo vide ?)")
     total = segs[-1].out0 + segs[-1].dur

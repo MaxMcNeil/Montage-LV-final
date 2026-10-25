@@ -52,3 +52,16 @@ def test_schedule_insert_in_silence_and_panel():
     t54 = next(w for w in W if w["w"] == "54")["t0"]
     split = next(x for x in segs if x.kind == "split")
     assert abs(split.out0 - out_time(segs, t54 - 0.12)) < 0.1   # le chiffre apparaît quand il est prononcé
+
+
+def test_insert_never_cuts_speech():
+    from montage.timeline import find_pause
+    # phrase 0 finie mais la suivante enchaîne sans pause (0,1 s) : l'extrait attend la vraie pause suivante
+    w = _words([(0.0, 4.0, "Première phrase ici."), (4.1, 8.0, "Je continue sans respirer."), (9.0, 12.0, "Nouvelle idée.")])
+    s = sentences(w)
+    sil = [(8.05, 8.95)]
+    t = find_pause(w, s, sil, 0)
+    assert t is not None and 8.0 < t < 9.0
+    assert not any(x["t0"] - 0.05 < t < x["t1"] + 0.05 for x in w)
+    # aucun silence confirmé par le son : pas d'insertion du tout
+    assert find_pause(w, s, [(20, 21)], 0) is None

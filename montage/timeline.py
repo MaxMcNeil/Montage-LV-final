@@ -4,6 +4,7 @@ les zooms de relance. Tout est calé à l'image près (30 i/s)."""
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 from .config import FPS
@@ -79,7 +80,42 @@ def trigger_time(words: list, s: dict, trig: str) -> float:
     return s["t0"]
 
 
-def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None) -> tuple[list, list]:
+def find_pause(words: list, sents: list, sil: list, after: int, look: int = 3) -> float | None:
+    """Instant d'insertion GARANTI dans un vrai silence (jamais pendant que tu parles).
+    On cherche, à partir de la fin de la phrase « after » et sur les `look` phrases suivantes, un trou entre deux mots
+    d'au moins 0,35 s CONFIRMÉ par le son (silencedetect) ; priorité aux fins de phrase. Le point d'insertion est le
+    milieu du silence. Rien de sûr → None (l'extrait n'est pas inséré plutôt que de te couper la parole)."""
+    if not words or after >= len(sents):
+        return None
+    k0 = sents[after]["w1"]
+    k1 = sents[min(after + look, len(sents) - 1)]["w1"]
+    best = None
+    for k in range(k0, k1 + 1):
+        a = words[k]["t1"]
+        b = words[k + 1]["t0"] if k + 1 < len(words) else a + 1.5
+        if b - a < 0.35:
+            continue
+        if sil:  # le silence doit être réel : on prend la partie vraiment silencieuse du trou
+            ov = [(max(a, x), min(b, y)) for x, y in sil if min(b, y) - max(a, x) >= 0.25]
+            if not ov:
+                continue
+            x, y = max(ov, key=lambda o: o[1] - o[0])
+        else:
+            if b - a < 0.6:
+                continue
+            x, y = a, b
+        t = (x + y) / 2
+        end_sentence = bool(re.search(r"[.!?…؟]['\"»”)]*$", words[k]["w"])) or k == len(words) - 1
+        cand = (0 if end_sentence else 1, k, t)
+        if end_sentence:
+            return q(t)
+        if best is None:
+            best = cand
+    return q(best[2]) if best else None
+
+
+def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None,
+             sil=None) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -88,11 +124,16 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
     # 1) points d'insertion : juste après la fin d'une phrase, dans le silence
     pts = []
     for ins in sorted(inserts, key=lambda i: i["after"]):
-        s = sents[ins["after"]]
-        nxt = sents[ins["after"] + 1]["t0"] if ins["after"] + 1 < len(sents) else keep[-1][1]
-        t = q(min(s["t1"] + 0.14, max(s["t1"], nxt - 0.06)))
+        t = find_pause(words, sents, sil or [], ins["after"])
+        if t is None:
+            log.warning("pas de vrai silence après la phrase %d : extrait non inséré (pour ne pas te couper)", ins["after"])
+            continue
         t = _snap(t, keep)
         if t is None or any(abs(t - p["t"]) < 8 for p in pts):
+            continue
+        # sécurité ultime : aucun mot prononcé ne chevauche le point d'insertion
+        if any(w["t0"] - 0.05 < t < w["t1"] + 0.05 for w in words):
+            log.warning("point d'insertion %.2f s sur un mot : extrait non inséré", t)
             continue
         pts.append({"t": t, **ins})
     # 2) médias à côté de toi : fenêtre calée sur le mot déclencheur
@@ -195,8 +236,10 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
 
 
 def _snap(t: float, keep: list) -> float | None:
-    for a, b in keep:
+    for i, (a, b) in enumerate(keep):
         if a <= t <= b:
+            if t > b - 2 / FPS and i + 1 < len(keep):  # pile sur une coupe : début de la plage suivante (toujours un silence)
+                return keep[i + 1][0]
             return t
         if t < a:  # dans un silence coupé : on prend le point de coupe
             return a
