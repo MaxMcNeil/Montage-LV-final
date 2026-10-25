@@ -72,6 +72,15 @@ Un lot précis : `finder: 2026-10-24_2144_n16`.
 Pour que les extraits YouTube passent vraiment en vidéo : secret `YT_COOKIES` (contenu d'un fichier cookies.txt
 exporté depuis un navigateur connecté à YouTube) ou `YT_PROXY_URL`.
 
+## 🔗 Chaîne depuis le fond vert (automatique)
+
+Quand tu coches **enchainer** dans le dépôt fond vert, ce montage est lancé tout seul à la fin du fond vert
+(synchro Finder `oui`, ou `non` = photos/vidéos du dossier Google Drive **`montage-joints`**), puis il lance les
+Shorts dans Push-overlay. Résultat : release **`out-chaine-<id>`** (supprimée après 2 jours) — ta release
+`out-montage` et tes montages manuels ne sont pas touchés. Il faut ici : `RCLONE_CONF` (même compte Google que le
+fond vert) + variable `CHAINE_APP_ID` / secret `CHAINE_APP_KEY` (ou secret `CHAINE_TOKEN`). Guide complet : README
+du dépôt vdo-BACKGROUND-replace-GREEN-, section « Chaîne ». En cas d'échec : **Re-run jobs** sur le run.
+
 ## ⚡ Ouverture choc (facultatif)
 
 *Run workflow* → menu **ouverture_choc** → `oui` (par défaut `non`) ; ou `ouverture_choc: oui` dans la description

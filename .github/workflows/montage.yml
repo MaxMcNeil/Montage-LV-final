@@ -8,6 +8,9 @@ name: Montage final
 on:
   release:
     types: [published]
+  # 🔗 CHAÎNE : lancé automatiquement par le dépôt fond vert (case « enchainer »), jamais par un cron
+  repository_dispatch:
+    types: [chaine-montage]
   workflow_dispatch:
     inputs:
       source:
@@ -61,7 +64,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: montage-${{ github.event.release.tag_name || inputs.source || github.ref }}
+  group: montage-${{ github.event.client_payload.chaine_id || github.event.release.tag_name || inputs.source || github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -93,6 +96,12 @@ jobs:
       QF_CACHE_DIR: .cache
       QF_QUOTA_FILE: state/quota.json
       PYTHONPATH: vpf
+      # 🔗 CHAÎNE (vide pour un montage lancé à la main ou par une release : rien ne change alors)
+      CHAINE_ID: ${{ github.event.client_payload.chaine_id }}
+      CHAINE_VIDEO_ID: ${{ github.event.client_payload.video_id }}
+      CHAINE_FINDER: ${{ github.event.client_payload.finder }}
+      CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
+      CHAINE_ORIGINE: ${{ github.event.client_payload.origine }}
     steps:
       - uses: actions/checkout@v5
 
@@ -156,6 +165,15 @@ jobs:
           key: montage-cache-${{ github.run_id }}
           restore-keys: montage-cache-
 
+      - name: Chaîne — vérifier que tout est prêt (avant le montage)
+        if: env.CHAINE_ID != ''
+        env:
+          JETON: ${{ (vars.CHAINE_APP_ID != '' && secrets.CHAINE_APP_KEY != '') || secrets.CHAINE_TOKEN != '' }}
+        run: |
+          echo "### 🔗 Chaîne \`$CHAINE_ID\` — synchro Finder : **${CHAINE_FINDER:-oui}** · fond vert : $CHAINE_ORIGINE" >> "$GITHUB_STEP_SUMMARY"
+          [ -n "$RCLONE_CONF" ] || { echo "::error title=Chaîne::secret RCLONE_CONF absent dans montage-lv-final (même compte Google que RCLONE_CONFIG du dépôt fond vert)."; exit 1; }
+          [ "$JETON" = "true" ] || { echo "::error title=Chaîne::jeton absent dans montage-lv-final : variable CHAINE_APP_ID + secret CHAINE_APP_KEY (ou secret CHAINE_TOKEN). Sans lui, les Shorts ne pourraient pas être lancés."; exit 1; }
+
       - name: Récupérer la vidéo et les pièces jointes
         id: fetch
         env:
@@ -177,7 +195,7 @@ jobs:
           MONTAGE_MAX_INSERTS: ${{ inputs.max_inserts }}
           MONTAGE_OUVERTURE_CHOC: ${{ inputs.ouverture_choc }}
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
-          MONTAGE_FINDER: ${{ inputs.finder }}
+          MONTAGE_FINDER: ${{ inputs.finder || github.event.client_payload.finder }}
         run: |
           mkdir -p fonts state
           if [ -n "${YT_COOKIES:-}" ]; then printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/yt-cookies.txt"; export YT_COOKIES_FILE="$RUNNER_TEMP/yt-cookies.txt"; fi
@@ -187,7 +205,7 @@ jobs:
             --notes input/notes.txt --options input/options.json --out output --work work
 
       - name: Publier (release « out-montage » ou Google Drive)
-        if: steps.fetch.outputs.skip != '1'
+        if: steps.fetch.outputs.skip != '1' && env.CHAINE_ID == ''
         id: pub
         env:
           SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
@@ -195,8 +213,28 @@ jobs:
           CONSUMED: ${{ steps.fetch.outputs.consumed }}
         run: bash scripts/publish.sh
 
+      - name: Chaîne — jeton GitHub App
+        id: chaine_tok
+        if: env.CHAINE_ID != '' && vars.CHAINE_APP_ID != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CHAINE_APP_ID }}
+          private-key: ${{ secrets.CHAINE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: push-overlay
+
+      - name: Chaîne — publier (out-chaine, 2 jours) et lancer les Shorts
+        id: pubc
+        if: env.CHAINE_ID != ''
+        env:
+          BASE: ${{ steps.fetch.outputs.base }}
+          CHAINE_GH_TOKEN: ${{ steps.chaine_tok.outputs.token || secrets.CHAINE_TOKEN }}
+        run: bash scripts/chaine_suite.sh
+
       - name: Artifact (si ni release ni Drive)
-        if: steps.pub.outputs.artifact == '1'
+        # chaîne : si la publication échoue, le montage rendu n'est jamais perdu (Artifacts du run, 14 jours)
+        if: always() && (steps.pub.outputs.artifact == '1' || steps.pubc.outputs.artifact == '1' || (env.CHAINE_ID != '' && steps.pubc.outcome == 'failure'))
         uses: actions/upload-artifact@v6
         with:
           name: montage-final

@@ -243,11 +243,94 @@ def is_video(p: Path) -> bool:
     return p.suffix.lower() in VIDEO
 
 
+MEDIA_RE = re.compile(r"\.(" + "|".join(e.lstrip(".") for e in VIDEO + IMAGE) + r")$", re.I)
+
+
+def chaine():
+    """CHAÎNE (fond vert → montage → shorts) : la vidéo arrive par son identifiant Google Drive (privée), les
+    photos/vidéos à insérer sont prises dans le dossier Drive « montage-joints » (obligatoires si synchro Finder = non).
+    La liste exacte des fichiers pris est notée dans input/joints-utilises.txt : seuls ceux-là seront retirés du dossier
+    après un montage réussi (un fichier ajouté pendant le montage reste pour la prochaine vidéo)."""
+    vid = os.environ.get("CHAINE_VIDEO_ID", "").strip()
+    cid = os.environ.get("CHAINE_ID", "").strip()
+    joints = (os.environ.get("CHAINE_JOINTS") or "montage-joints").strip().strip("/")
+    finder = (os.environ.get("CHAINE_FINDER") or "oui").strip().lower()
+    finder = "non" if finder in ("non", "no", "false", "0") else "dernier"
+    print(f"🔗 Chaîne {cid} : vidéo Drive {vid} · synchro Finder : {'non' if finder == 'non' else 'oui'}")
+    for f in ("joints-utilises.txt", "joints-liste.txt"):
+        (IN / f).unlink(missing_ok=True)
+    rem = rclone_remote()
+    if not rem:
+        die("Chaîne : le secret RCLONE_CONF est absent dans montage-lv-final. La chaîne transmet la vidéo par Google Drive "
+            "(privé) : ajoute RCLONE_CONF (même compte Google que RCLONE_CONFIG du dépôt fond vert), puis « Re-run jobs ».")
+    dl = RAW / "chaine"
+    dl.mkdir(parents=True, exist_ok=True)
+    for k in range(3):
+        r = sh(["rclone", "backend", "copyid", f"{rem}:", vid, f"{dl}/", "--drive-acknowledge-abuse", "-q"], check=False)
+        if r.returncode == 0 and any(dl.iterdir()):
+            break
+        print(f"::warning::Google Drive, essai {k + 1} : {(r.stderr or '').strip()[-200:]}")
+    vids = [f for f in dl.iterdir() if f.is_file()]
+    if not vids:
+        die(f"Chaîne : vidéo introuvable sur Google Drive (identifiant {vid}). RCLONE_CONF doit être le MÊME compte Google "
+            "que RCLONE_CONFIG du dépôt fond vert. Le fichier est gardé 2 jours dans Drive, dossier chaine/.")
+    main_video = vids[0]
+    # photos / vidéos du dossier montage-joints
+    ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
+    pris = [l.strip() for l in (ls.stdout or "").splitlines() if MEDIA_RE.search(l.strip())]
+    if finder == "non" and not pris:
+        die(f"Synchro Finder = non, mais le dossier Google Drive « {joints} » est vide (ou absent) : rien à insérer. "
+            f"Dépose tes photos / vidéos dans « {joints} », puis relance ce run (« Re-run jobs ») : la vidéo attend 2 jours sur Drive.")
+    n = 0
+    if pris:
+        lst = IN / "joints-liste.txt"
+        lst.write_text("\n".join(pris) + "\n", encoding="utf-8")
+        jd = RAW / "joints"
+        r = sh(["rclone", "copy", f"{rem}:{joints}", jd, "--files-from", lst, "--drive-acknowledge-abuse", "-q"], check=False)
+        if r.returncode != 0:
+            msg = f"une partie des fichiers de « {joints} » n'a pas pu être téléchargée"
+            print(f"::warning::{msg} : {(r.stderr or '').strip()[-200:]}")
+            WARN.append(msg)
+        got = sorted(p for p in jd.rglob("*") if p.is_file()) if jd.exists() else []
+        if finder == "non" and not got:
+            die(f"Chaîne : impossible de télécharger les fichiers du dossier « {joints} ».")
+        ok = []
+        for f in got:
+            n += 1
+            shutil.move(str(f), ATT / f"{n:02d}_{f.name}")
+            ok.append(str(f.relative_to(jd)))
+        (IN / "joints-utilises.txt").write_text("\n".join(ok) + ("\n" if ok else ""), encoding="utf-8")
+        print(f"Dossier « {joints} » : {len(ok)} fichier(s) → " + ", ".join(ok))
+    ext = main_video.suffix.lower() if is_video(main_video) else ".mp4"
+    dst = IN / f"video{ext}"
+    shutil.move(str(main_video), dst)
+    shutil.rmtree(RAW, ignore_errors=True)
+    notes, cuts = parse_cuts(os.environ.get("NOTES") or "")
+    notes, opts, _ = parse_body(notes)
+    opts["finder"] = finder
+    (IN / "notes.txt").write_text(notes, encoding="utf-8")
+    (IN / "warnings.txt").write_text("\n".join(WARN), encoding="utf-8")
+    (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
+    (IN / "cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
+    stem = re.sub(r"^moi[-_ ]*", "", main_video.stem, flags=re.I) or main_video.stem
+    base = re.sub(r"[^\w.-]", "_", stem)[:40] or "video"
+    out("video", str(dst))
+    out("base", base)
+    out("consumed", "")
+    out("joints", str(n))
+    print(f"Vidéo : {dst} ({dst.stat().st_size / 1e6:.0f} Mo) · pièces jointes : {n} · réglages : {opts}")
+    r = sh(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", dst], check=False)
+    if r.returncode != 0 or not r.stdout.strip():
+        die("Chaîne : le fichier reçu n'est pas une vidéo lisible.")
+
+
 def main():
     IN.mkdir(exist_ok=True)
     ATT.mkdir(parents=True, exist_ok=True)
     for f in IN.glob("video.*"):
         f.unlink()
+    if os.environ.get("CHAINE_VIDEO_ID", "").strip():
+        return chaine()
     src = (os.environ.get("SOURCE") or "").strip()
     pieces = (os.environ.get("PIECES") or "").strip()
     tag = (os.environ.get("EVENT_TAG") or "").strip()
