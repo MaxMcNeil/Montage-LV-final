@@ -55,9 +55,9 @@ on:
         options: [défaut, oui, non]
         default: défaut
       finder:
-        description: "Synchro avec Vid-o-presse-finder : monter les extraits et articles de son DERNIER lot (non = juste tes pièces jointes)"
+        description: "Synchro avec Vid-o-presse-finder : oui = son DERNIER lot ; osint = dernier lot lancé par OSINT-teleprompter- ; non = juste tes pièces jointes"
         type: choice
-        options: [oui, non]
+        options: [oui, osint, non]
         default: oui
 
 permissions:

@@ -25,9 +25,12 @@ def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 16, max_article
     which = (which or "dernier").strip()
     if which.lower() in ("dernier", "oui", "yes", "last", "latest", "auto", ""):
         lot = lots[-1] if lots else None
+    elif which.lower() == "osint":     # dernier lot lancé automatiquement par OSINT-teleprompter-
+        lot = next((d for d in reversed(lots) if _origine(d)), None)
     else:
         lot = next((d for d in lots if d.name.lower() == which.lower()), None) \
-            or next((d for d in reversed(lots) if d.name.lower().startswith(which.lower())), None)
+            or next((d for d in reversed(lots) if d.name.lower().startswith(which.lower())), None) \
+            or _by_subject(lots, which)
     if not lot:
         log.info("Vid-o-presse-finder : aucun lot « %s »", which)
         return None
@@ -61,10 +64,44 @@ def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 16, max_article
     except (TypeError, ValueError):
         pass
     searches = sorted({" | ".join(x for x in (c.get("target", ""), c.get("claim", "")) if x) for c in clips} - {""})
+    origine = _origine(lot)
+    if origine:     # lot lancé par OSINT-teleprompter- : le sujet et la thèse du live guident le choix des extraits
+        live = f"live « {(origine.get('sujet') or origine.get('court') or '')[:300]} »"
+        if origine.get("demontrer"):
+            live += f" (thèse : {origine['demontrer'][:250]})"
+        searches = [live] + searches
     log.info("Vid-o-presse-finder : lot %s (%s jour(s)) — %d extrait(s), %d article(s) — %s", lot.name, age, len(clips),
              len(arts), "; ".join(searches))
     return {"lot": lot.name, "age_days": age, "clips": clips[:max_clips], "articles": arts[:max_articles],
-            "searches": searches}
+            "searches": searches, "origine": origine}
+
+
+def _origine(lot: Path) -> dict:
+    """ORIGINE.json d'un lot lancé par OSINT-teleprompter- ({} si lancé à la main)."""
+    try:
+        o = json.loads((lot / "ORIGINE.json").read_text(encoding="utf-8"))
+        return o if isinstance(o, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _norm(s: str) -> str:
+    import unicodedata
+    s = unicodedata.normalize("NFKD", str(s or "").lower()).encode("ascii", "ignore").decode()
+    return re.sub(r"[^a-z0-9]+", " ", s).strip()
+
+
+def _by_subject(lots: list, which: str):
+    """Réglage « finder: suisse microsoft » : dernier lot OSINT dont le sujet contient tous ces mots."""
+    words = [w for w in _norm(which).split() if len(w) > 2]
+    if not words:
+        return None
+    for d in reversed(lots):
+        o = _origine(d)
+        hay = _norm(" ".join(str(o.get(k) or "") for k in ("sujet", "court", "dossier")))
+        if o and all(w in hay for w in words):
+            return d
+    return None
 
 
 PROMPT = """Tu es le monteur d'une vidéo face caméra (langue « {lang} »). Avant d'enregistrer, l'auteur a lancé une

@@ -68,6 +68,9 @@ Vidéo sans rapport avec ta dernière recherche (seules tes pièces jointes et l
 - **Release** : tag `montage-solo-001`, `montage-solo-002`… (tag `montage-001` = avec le Finder) ;
 - **Run workflow** : menu déroulant **finder** → `non`.
 Un lot précis : `finder: 2026-10-24_2144_n16`.
+Lots lancés **automatiquement par OSINT-teleprompter-** (après chaque script de live) : ils portent `ORIGINE.json`
+(sujet, thèse, dossier du script). Le montage s'en sert pour choisir les extraits qui collent à ton live.
+`finder: osint` = dernier lot lancé par OSINT ; `finder: suisse microsoft` = dernier lot OSINT dont le sujet contient ces mots.
 
 Pour que les extraits YouTube passent vraiment en vidéo : secret `YT_COOKIES` (contenu d'un fichier cookies.txt
 exporté depuis un navigateur connecté à YouTube) ou `YT_PROXY_URL`.

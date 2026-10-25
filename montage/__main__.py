@@ -202,7 +202,8 @@ def main(argv=None) -> int:
         if lot:
             m = finder_match(ai, sents, lot, lang, max_ins)
             lot_info = {"lot": lot["lot"], "age": lot["age_days"], "clips": len(lot["clips"]),
-                        "articles": len(lot["articles"]), "placed": m, "video_ok": 0, "cards": 0}
+                        "articles": len(lot["articles"]), "placed": m, "video_ok": 0, "cards": 0,
+                        "origine": lot.get("origine") or {}}
             used = set()
             uses = {}
             for x in m["inserts"]:
@@ -461,6 +462,10 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         L.append(f"- Accroche ({tc(h0)} → {tc(h0 + 3.5)}) : « {plan['hook']} »")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
+        if lot_info.get("origine"):
+            o = lot_info["origine"]
+            L.append(f"- 🔗 Lot lancé par OSINT-teleprompter- pour le live « {(o.get('court') or o.get('sujet') or '')[:120]} » "
+                     f"(script `prompter/{o.get('dossier', '')}`)")
         L.append(f"- Vid-o-presse-finder : lot **{lot_info['lot']}**{age} — {lot_info['clips']} extrait(s) et "
                  f"{lot_info['articles']} article(s) disponibles → {len(lot_info['placed']['inserts'])} déclaration(s) en "
                  f"rapport avec ce que tu dis ({lot_info['video_ok']} en vidéo, {lot_info['cards']} en carte car la vidéo "
