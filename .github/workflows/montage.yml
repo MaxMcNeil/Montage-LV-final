@@ -222,7 +222,7 @@ jobs:
           app-id: ${{ vars.CHAINE_APP_ID }}
           private-key: ${{ secrets.CHAINE_APP_KEY }}
           owner: ${{ github.repository_owner }}
-          repositories: push-overlay
+          repositories: Push-overlay
 
       - name: Chaîne — publier (out-chaine, 2 jours) et lancer les Shorts
         id: pubc

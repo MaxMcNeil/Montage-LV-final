@@ -10,7 +10,7 @@
 set -uo pipefail
 F=output/montage-final.mp4
 SUM="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
-CIBLE_REPO="${CHAINE_SHORTS_REPO:-MaxMcNeil/push-overlay}"
+CIBLE_REPO="${CHAINE_SHORTS_REPO:-MaxMcNeil/Push-overlay}"
 JOINTS="${CHAINE_JOINTS:-montage-joints}"
 TAG="out-chaine-$CHAINE_ID"
 err() { echo "::error title=Chaîne::$*"; { echo "### ❌ Chaîne arrêtée après le montage"; echo "$*"; } >> "$SUM"; exit 1; }
