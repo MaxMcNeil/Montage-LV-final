@@ -28,22 +28,23 @@ jobs:
             .github
             ETAT.md
           sparse-checkout-cone-mode: false
-      - name: État des workflows
-        id: e
+      - name: État des workflows (enregistré seulement si l'état change)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 .github/etat/etat.py > etat.log
-          tail -n 1 etat.log
-          grep -q '^CHANGED$' etat.log && echo "changed=1" >> "$GITHUB_OUTPUT" || true
-      - name: Enregistrer ETAT.md (seulement si l'état a changé)
-        if: steps.e.outputs.changed == '1'
-        run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add ETAT.md
-          git diff --cached --quiet && exit 0
-          git commit -q -m "état des workflows"
-          for i in 1 2 3 4 5; do git pull --rebase -q origin "${GITHUB_REF_NAME}" && git push -q origin "HEAD:${GITHUB_REF_NAME}" && exit 0; sleep $((i * 4)); done
+          cp .github/etat/etat.py /tmp/etat.py
+          # chaque essai repart du dépôt À JOUR : jamais de conflit avec un autre workflow qui écrit en même temps
+          for i in 1 2 3 4 5; do
+            git fetch -q --depth 1 origin "${GITHUB_REF_NAME}" && git reset -q --hard FETCH_HEAD
+            python3 /tmp/etat.py > /tmp/etat.log
+            grep -q '^CHANGED$' /tmp/etat.log || { echo "État inchangé"; exit 0; }
+            git add ETAT.md
+            git diff --cached --quiet && exit 0
+            git commit -q -m "état des workflows"
+            git push -q origin "HEAD:${GITHUB_REF_NAME}" && { echo "ETAT.md enregistré"; exit 0; }
+            sleep $((i * 5))
+          done
           echo "::warning::ETAT.md non enregistré (dépôt très actif) : il le sera au prochain passage"
 
