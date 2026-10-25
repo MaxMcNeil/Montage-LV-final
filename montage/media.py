@@ -7,6 +7,22 @@ from pathlib import Path
 log = logging.getLogger("montage.media")
 
 
+def black_start(video: Path, probe_s: float = 6.0) -> float:
+    """Fin des images noires au tout début de la vidéo (0 s s'il n'y en a pas)."""
+    import re
+    import subprocess
+    try:
+        r = subprocess.run(["ffmpeg", "-hide_banner", "-nostdin", "-t", str(probe_s), "-i", str(video), "-an", "-vf",
+                            "blackdetect=d=0.03:pic_th=0.95:pix_th=0.12", "-f", "null", "-"],
+                           capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError):
+        return 0.0
+    m = re.search(r"black_start:\s*([\d.]+)\s+black_end:\s*([\d.]+)", r.stderr or "")
+    if m and float(m.group(1)) < 0.05:
+        return float(m.group(2))
+    return 0.0
+
+
 def face_center(video: Path, samples: int = 36) -> dict:
     """Centre du visage en coordonnées normalisées (0-1) dans l'image affichée. Défaut : centre, un peu haut."""
     default = {"found": False, "cx": 0.5, "cy": 0.38, "fh": 0.3}

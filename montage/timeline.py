@@ -14,12 +14,14 @@ log = logging.getLogger("montage.timeline")
 CUT = {"doux": (1.0, 0.28, 0.32), "dynamique": (0.6, 0.16, 0.22)}  # pause min, marge avant, marge après
 
 
-def keep_ranges(words: list, sil: list, duration: float, mode: str) -> list[tuple[float, float]]:
+def keep_ranges(words: list, sil: list, duration: float, mode: str, skip_start: float = 0.0) -> list[tuple[float, float]]:
     """Plages gardées de la vidéo source. Une pause n'est raccourcie que si les mots ET le son confirment le silence."""
     if not words:
-        return [(0.0, q(duration))]
-    start = max(0.0, words[0]["t0"] - 0.45)
+        return [(q(skip_start), q(duration))]
+    start = max(0.0, words[0]["t0"] - 0.15)   # on démarre sur ta parole : chaque dixième compte pour l'audience
     end = min(duration, words[-1]["t1"] + 0.9)
+    if skip_start > start:  # images noires au début de la source : jamais montrées
+        start = min(skip_start, max(start, words[0]["t0"] - 0.02))
     if mode not in CUT:
         return [(q(start), q(end))]
     gap_min, before, after = CUT[mode]

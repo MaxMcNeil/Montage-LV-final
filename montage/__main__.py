@@ -291,7 +291,11 @@ def main(argv=None) -> int:
             log.warning("Ouverture choc demandée mais aucune vidéo jointe utilisable : la vidéo commence normalement")
 
     # 5) ligne de temps
-    keep = keep_ranges(words, tr.get("silences") or [], info["duration"], opts["couper_silences"])
+    from .media import black_start
+    b0 = black_start(src)
+    if b0 > 0:
+        log.info("Images noires au début de ta vidéo (%.2f s) : retirées", b0)
+    keep = keep_ranges(words, tr.get("silences") or [], info["duration"], opts["couper_silences"], b0)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
                             opener=opener)
     if not segs:
