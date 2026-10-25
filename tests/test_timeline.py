@@ -65,3 +65,26 @@ def test_insert_never_cuts_speech():
     assert not any(x["t0"] - 0.05 < t < x["t1"] + 0.05 for x in w)
     # aucun silence confirmé par le son : pas d'insertion du tout
     assert find_pause(w, s, [(20, 21)], 0) is None
+
+
+def test_long_silences_cut_even_without_silence_mode():
+    k = keep_ranges(W, SIL, 33, "non", long_gap=2.0)
+    # pauses : 3 s (5→8) et 2 s (20→22) raccourcies ; 1 s (13→14) gardée
+    assert len(k) == 3
+    removed = 33 - sum(b - a for a, b in k)
+    assert removed > 3.0
+    assert len(keep_ranges(W, SIL, 33, "non")) == 1          # option désactivée : comportement d'avant
+
+
+def test_quiet_detection_and_word_repair(tmp_path):
+    import subprocess
+    from montage.pauses import quiet_intervals, repair_words
+    # voix (sinus fort) 0-2 s, bruit de pièce (-34 dB, non détecté par un seuil fixe) 2-5 s, voix 5-7 s
+    f = tmp_path / "a.wav"
+    subprocess.run(["ffmpeg", "-loglevel", "error", "-y", "-f", "lavfi", "-i",
+                    "aevalsrc='if(lt(t,2)+gt(t,5),0.5*sin(2*PI*220*t),0.02*(random(0)-0.5))':s=16000:d=7", str(f)],
+                   check=True)
+    q_ = quiet_intervals(f, tmp_path)
+    assert any(a < 2.2 and b > 4.8 for a, b in q_)
+    w = [{"t0": 1.0, "t1": 4.6, "w": "mot"}, {"t0": 5.0, "t1": 5.5, "w": "suite"}]   # mot « étiré » sur la pause
+    assert repair_words(w, q_) == 1 and w[0]["t1"] < 2.4

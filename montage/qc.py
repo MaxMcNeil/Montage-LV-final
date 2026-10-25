@@ -29,7 +29,7 @@ def _ass_events(path: Path) -> list[tuple[float, float, str]]:
     return out
 
 
-def check(final: Path, segs: list, words: list, ass_path: Path) -> list[tuple[bool, str]]:
+def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float | None = None) -> list[tuple[bool, str]]:
     res: list[tuple[bool, str]] = []
     # 1) durées son / image
     try:
@@ -69,6 +69,20 @@ def check(final: Path, segs: list, words: list, ass_path: Path) -> list[tuple[bo
     n_ins = sum(1 for s in segs if s.kind == "insert" and not s.insert.get("opener"))
     res.append((not bad, f"{n_ins} extrait(s) inséré(s), tous dans un silence" if not bad else
                 "extrait(s) pendant la parole : " + ", ".join(bad)))
+    # 3b) silences longs restants (entre deux de tes mots, hors extraits insérés)
+    if long_gap:
+        from .timeline import out_time
+        ins = [(s.out0, s.out0 + s.dur) for s in segs if s.kind == "insert"]
+        left = []
+        for w1, w2 in zip(words, words[1:]):
+            a, b = out_time(segs, w1["t1"]), out_time(segs, w2["t0"])
+            if a is None or b is None or b - a <= long_gap + 0.3:
+                continue
+            if any(a - 0.1 <= x0 and x1 <= b + 0.1 for x0, x1 in ins):
+                continue
+            left.append(f"{tc(a)} ({b - a:.1f} s)")
+        res.append((not left, f"aucun silence de plus de {long_gap:.0f} s" if not left else
+                    f"{len(left)} silence(s) long(s) gardé(s) (son non silencieux ?) : " + ", ".join(left[:6])))
     # 4) textes d'habillage qui se chevauchent
     ev = [e for e in _ass_events(ass_path) if e[2] in ("Hook", "Chap", "Outro")]
     over = []

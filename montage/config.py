@@ -132,6 +132,7 @@ DEFAULTS = {
     "effets_sonores": "oui",        # petits souffles discrets aux transitions (pas de musique)
     "fin": "oui",                   # carte de fin « merci / abonnez-vous »
     "langue": "auto",               # auto | fr | ar | it | en ...
+    "silences_longs": "oui",        # oui : tout silence de plus de 2 s est raccourci (avec effet doux selon ta position)
     "ouverture_choc": "non",        # oui : la vidéo commence par le passage le plus fort de ton extrait joint
     "finder": "dernier",            # dernier | non | <nom d'un lot> : résultats de Vid-o-presse-finder à monter
 }

@@ -102,7 +102,19 @@ def _talk(g: Graph, ctx: Ctx, atoms, chain_for) -> str:
         n = frames(at.b - at.a)
         i = g.inp("-ss", f"{at.a:.4f}", "-t", f"{at.b - at.a + 0.6:.4f}", "-i", ctx.src)
         g.add(f"[{i}:v]fps={FPS},tpad=stop_mode=clone:stop_duration=1,trim=end_frame={n},setpts=N/{FPS}/TB,"
-              f"{chain_for(at)}[t{k}]")
+              f"{chain_for(at)},settb=1/{FPS},format=yuv420p[t{k}]")
+        nx = min(frames(getattr(at, "xin", 0.0) or 0.0), n - 1)
+        if k > 0 and nx >= 3 and getattr(at, "xfrom", None) is not None:
+            # fondu doux : les images du silence supprimé (juste après le morceau précédent) se fondent dans celui-ci —
+            # la durée ne change pas, le son reste parfaitement synchro
+            p = at.xfrom
+            j = g.inp("-ss", f"{p.b:.4f}", "-t", f"{nx / FPS + 0.6:.4f}", "-i", ctx.src)
+            g.add(f"[{j}:v]fps={FPS},tpad=stop_mode=clone:stop_duration=1,trim=end_frame={nx + 2},setpts=N/{FPS}/TB,"
+                  f"{chain_for(p)},settb=1/{FPS},format=yuv420p[xa{k}]")
+            g.add(f"[xa{k}][t{k}]xfade=transition=fade:duration={nx / FPS:.4f}:offset=0,"
+                  f"trim=end_frame={n},setpts=N/{FPS}/TB[tx{k}]")
+            labels.append(f"[tx{k}]")
+            continue
         labels.append(f"[t{k}]")
     if len(labels) == 1:
         g.add(f"{labels[0]}null[cat]")

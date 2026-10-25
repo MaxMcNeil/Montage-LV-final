@@ -48,7 +48,7 @@ def options(path: str | None) -> dict:
     # valeurs écrites librement dans la description de la release
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا"}
-    for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc"):
+    for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
@@ -96,6 +96,14 @@ def main(argv=None) -> int:
                                                                                "silences": []}
     lang = (want_lang or tr.get("lang") or "fr")[:2]
     words = tr["words"]
+    # silences : détection adaptative (bruit de fond réel de ta pièce) + réparation des mots « étirés »
+    quiet = []
+    if info["audio"] and words and (opts.get("silences_longs") == "oui" or opts["couper_silences"] != "non"):
+        from .pauses import quiet_intervals, repair_words
+        quiet = quiet_intervals(src, work)
+        nfix = repair_words(words, quiet)
+        if nfix:
+            log.info("Silences : %d mot(s) à l'horodatage étiré corrigé(s)", nfix)
     sents = sentences(words)
     log.info("Transcription : %d mots, %d phrases, langue %s", len(words), len(sents), lang)
 
@@ -295,9 +303,19 @@ def main(argv=None) -> int:
     b0 = black_start(src)
     if b0 > 0:
         log.info("Images noires au début de ta vidéo (%.2f s) : retirées", b0)
-    keep = keep_ranges(words, tr.get("silences") or [], info["duration"], opts["couper_silences"], b0)
+    from .pauses import merge
+    sil_all = merge(tr.get("silences") or [], quiet)
+    long_gap = 2.0 if opts.get("silences_longs") == "oui" else None
+    keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
-                            opener=opener, sil=tr.get("silences") or [])
+                            opener=opener, sil=sil_all)
+    pause_stats = None
+    if long_gap:
+        try:
+            from .pauses import cut_effects
+            pause_stats = cut_effects(segs, src, keep)
+        except Exception as e:  # noqa: BLE001 - un effet en échec ne doit jamais bloquer le montage (coupe nette)
+            log.warning("effets de coupe abandonnés (coupes nettes) : %s", e)
     if not segs:
         raise SystemExit("Rien à monter (vidéo vide ?)")
     total = segs[-1].out0 + segs[-1].dur
@@ -348,10 +366,10 @@ def main(argv=None) -> int:
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
     try:
         from .qc import check
-        qc = check(final, segs, words, ass_path)
+        qc = check(final, segs, words, ass_path, long_gap=long_gap)
     except Exception as e:  # noqa: BLE001
         qc = [(False, f"contrôle qualité impossible : {e}")]
-    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc)
+    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats)
     return 0
 
 
@@ -414,7 +432,8 @@ def _fmt_date(d: str) -> str:
     return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else (d or "")[:20]
 
 
-def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None):
+def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None,
+                 pause_stats=None):
     L = []
     L.append(f"# Montage — {plan.get('title') or 'vidéo'}\n")
     if qc:
@@ -424,6 +443,10 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         L.append("")
     L.append(f"- Durée : {tc(info['duration'])} déposée → **{tc(total)}** montée "
              f"(silences : {opts['couper_silences']}) · langue : {lang} · format : {info['w']}x{info['h']}")
+    if pause_stats and pause_stats.get("cuts"):
+        L.append(f"- Silences de plus de 2 s : {pause_stats['cuts']} raccourci(s), {pause_stats['gagne']:.0f} s gagnées — "
+                 f"{pause_stats['zoom']} changement(s) de plan (tu n'avais pas bougé), {pause_stats['fondu']} fondu(s) "
+                 f"doux, {pause_stats['page']} masquée(s) par l'arrivée d'un média ou d'un extrait")
     if plan.get("fallback"):
         L.append("- ⚠ IA indisponible : montage simplifié (pièces jointes réparties, sans photos ni presse). "
                  "Vérifie les secrets GEMINI_API_KEYS / GROQ_API_KEYS.")

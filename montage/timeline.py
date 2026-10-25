@@ -15,21 +15,29 @@ log = logging.getLogger("montage.timeline")
 CUT = {"doux": (1.0, 0.28, 0.32), "dynamique": (0.6, 0.16, 0.22)}  # pause min, marge avant, marge après
 
 
-def keep_ranges(words: list, sil: list, duration: float, mode: str, skip_start: float = 0.0) -> list[tuple[float, float]]:
-    """Plages gardées de la vidéo source. Une pause n'est raccourcie que si les mots ET le son confirment le silence."""
+def keep_ranges(words: list, sil: list, duration: float, mode: str, skip_start: float = 0.0,
+                long_gap: float | None = None) -> list[tuple[float, float]]:
+    """Plages gardées de la vidéo source. Une pause n'est raccourcie que si les mots ET le son confirment le silence.
+    long_gap (ex. 2.0) : toute pause plus longue est raccourcie à ~0,6 s, même si couper_silences = non."""
     if not words:
         return [(q(skip_start), q(duration))]
     start = max(0.0, words[0]["t0"] - 0.15)   # on démarre sur ta parole : chaque dixième compte pour l'audience
     end = min(duration, words[-1]["t1"] + 0.9)
     if skip_start > start:  # images noires au début de la source : jamais montrées
         start = min(skip_start, max(start, words[0]["t0"] - 0.02))
-    if mode not in CUT:
+    if mode not in CUT and not long_gap:
         return [(q(start), q(end))]
-    gap_min, before, after = CUT[mode]
     cuts = []
     for w1, w2 in zip(words, words[1:]):
+        gap = w2["t0"] - w1["t1"]
+        if mode in CUT and gap >= CUT[mode][0]:
+            _, before, after = CUT[mode]
+        elif long_gap and gap >= long_gap:
+            _, before, after = CUT["doux"]
+        else:
+            continue
         g0, g1 = w1["t1"] + after, w2["t0"] - before
-        if w2["t0"] - w1["t1"] < gap_min or g1 - g0 < 0.25:
+        if g1 - g0 < 0.25:
             continue
         if sil:  # le silence doit être réel (sinon : mot non reconnu, on ne coupe pas)
             cover = sum(max(0.0, min(g1, b) - max(g0, a)) for a, b in sil)
@@ -52,6 +60,8 @@ class Atom:
     b: float                 # fin dans la source
     layout: int | None = None  # index du panneau (média à côté) ou None = plein cadre
     zoom: float = 1.0
+    xin: float = 0.0           # fondu doux depuis le morceau précédent (silence long supprimé), en secondes
+    xfrom: object = None       # morceau précédent (pour le fondu)
 
 
 @dataclass

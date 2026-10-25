@@ -81,6 +81,20 @@ apparais et l'accroche s'affiche. L'IA choisit le passage en lisant la transcrip
 (`fichier.mp4 = 1:20-1:45`) sert de repli sans IA.
 La langue se règle désormais dans les consignes : `langue: ar` (sinon détectée automatiquement).
 
+## 🤫 Silences de plus de 2 s (automatique)
+
+Tout silence de plus de 2 s est raccourci à une respiration naturelle (~0,6 s), en vertical comme en horizontal, dans
+toutes les langues (seul le son compte, pas les mots). Le silence est mesuré par rapport au **bruit de fond réel de ta
+pièce** (fiable même avec un fond vert remplacé ou un micro un peu bruyant) ; un mot dont l'horodatage « déborde »
+sur la pause est corrigé. À la coupe, l'effet dépend de ta position :
+- tu n'as presque pas bougé → **changement de plan** (zoom avant/arrière), comme une deuxième caméra ;
+- tu as bougé → **fondu enchaîné doux** (0,24–0,32 s), fait avec les images du silence supprimé : la durée et la
+  synchro du son ne changent pas ;
+- la coupe tombe sur l'arrivée d'une photo ou d'un extrait → sa transition suffit.
+
+PLAN.md indique le nombre de silences raccourcis et le temps gagné ; le contrôle qualité vérifie qu'il n'en reste
+aucun. Pour garder tes longs silences : `silences_longs: non` (description de la release ou consignes).
+
 ## 🎬 Ce que fait le montage
 
 | | |
