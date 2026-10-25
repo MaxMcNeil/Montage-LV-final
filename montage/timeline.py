@@ -212,6 +212,8 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
     for t, p in sorted(ins_at.items()):  # insertion en toute fin
         if t >= atoms[-1].b - 1e-6:
             segs.append(Segment("insert", insert=p))
+        else:
+            log.warning("extrait prévu à %.2f s non placé (aucune frontière à cet instant)", t)
     # 5) zooms de relance dans les plans pleins : changement à chaque coupe et toutes les ~7 s
     _zooms(segs, sents, orient)
     # plans pleins très longs : découpés en blocs (≤ 10 morceaux) pour garder chaque rendu léger — invisible à l'écran

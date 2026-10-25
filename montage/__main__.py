@@ -301,7 +301,8 @@ def main(argv=None) -> int:
     if not segs:
         raise SystemExit("Rien à monter (vidéo vide ?)")
     total = segs[-1].out0 + segs[-1].dur
-    log.info("Ligne de temps : %d segments, %.0f s → %.0f s", len(segs), info["duration"], total)
+    log.info("Ligne de temps : %d segments, %.0f s → %.0f s ; extraits prévus %d, insérés %d", len(segs), info["duration"],
+             total, len(inserts), sum(1 for s in segs if s.kind == "insert" and not s.insert.get("opener")))
 
     # 6) textes à l'écran
     face = face_center(src)
@@ -344,8 +345,13 @@ def main(argv=None) -> int:
     final = mux(vid, aud, outd / "montage-final.mp4")
     log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
 
-    # 8) rapport : quoi / où / quand
-    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info)
+    # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
+    try:
+        from .qc import check
+        qc = check(final, segs, words, ass_path)
+    except Exception as e:  # noqa: BLE001
+        qc = [(False, f"contrôle qualité impossible : {e}")]
+    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc)
     return 0
 
 
@@ -408,9 +414,14 @@ def _fmt_date(d: str) -> str:
     return f"{m.group(3)}/{m.group(2)}/{m.group(1)}" if m else (d or "")[:20]
 
 
-def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None):
+def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None):
     L = []
     L.append(f"# Montage — {plan.get('title') or 'vidéo'}\n")
+    if qc:
+        bad = [m for ok, m in qc if not ok]
+        L.append(("**Contrôle qualité : ✅ tout est bon** — " + " · ".join(m for _, m in qc)) if not bad else
+                 ("**Contrôle qualité : ⚠ à vérifier** — " + " · ".join(bad)))
+        L.append("")
     L.append(f"- Durée : {tc(info['duration'])} déposée → **{tc(total)}** montée "
              f"(silences : {opts['couper_silences']}) · langue : {lang} · format : {info['w']}x{info['h']}")
     if plan.get("fallback"):
@@ -442,13 +453,14 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     if plan.get("chapters"):
         L.append("**Chapitres** (à coller dans la description) :\n```")
         L.append("0:00 " + (plan["chapters"][0]["title"] if plan["chapters"] and plan["chapters"][0]["s"] == 0 else "Introduction"))
-        k = 0
-        for c in plan["chapters"]:
+        last = 0.0
+        for i, c in enumerate(plan["chapters"]):
             t = out_time(segs, sents[c["s"]]["t0"]) if c["s"] < len(sents) else None
-            if t is None or t < 4.5:
+            # YouTube : le 1er chapitre est toujours 0:00 (déjà écrit), puis au moins 10 s entre deux chapitres
+            if t is None or (i == 0 and plan["chapters"][0]["s"] == 0) or t < last + 10:
                 continue
             L.append(f"{tc(t)} {c['title']}")
-            k += 1
+            last = t
         L.append("```")
     L.append("\n## Ce qui apparaît, où et quand\n")
     L.append("| Quand (vidéo finale) | Quoi | Où | Pourquoi (ce que tu dis) | Source |")
