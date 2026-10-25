@@ -174,8 +174,16 @@ def classify(log: str) -> dict:
             u = unblock(r, per_minute)
             return {"cat": cat, "explication": expl.format(api=a), "action": action.format(api=a, unblock=u),
                     "ligne": line.strip()[:220], "api": a}
-    err = next((l for l in reversed(clean) if re.search(r"(error|exception|traceback|failed|fatal|invalid|no such)", l.lower())
+    err = next((l for l in reversed(clean) if re.search(r"(error|erreur|exception|traceback|failed|échec|fatal|invalid|no such)", l.lower())
                 and "##[" not in l and "exit code" not in l), "")
+    # un message « QUOI FAIRE » écrit par le programme lui-même est la meilleure explication possible
+    quoi = next((l.split(":", 1)[1].strip() for l in clean if l.strip().upper().startswith("QUOI FAIRE")), "")
+    if quoi:
+        idx = next(i for i, l in enumerate(clean) if l.strip().upper().startswith("QUOI FAIRE"))
+        quoi = " ".join([quoi] + [l.strip() for l in clean[idx + 1: idx + 3] if l.strip() and not l.startswith("##[")])
+        head = next((l for l in reversed(clean[:idx]) if re.search(r"erreur|error", l.lower())), err)
+        return {"cat": "explique", "explication": head.replace("ERREUR :", "").strip()[:200] or "erreur expliquée par le programme",
+                "action": quoi[:300], "ligne": "", "api": ""}
     exc = next((l for l in reversed(clean) if re.match(r"^\s*[A-Za-z_.]+(Error|Exception):", l)), "")
     return {"cat": "bug", "explication": "erreur dans le programme (pas un problème de quota ni de clé)",
             "action": "à corriger dans le code : transmets la ligne d'erreur ci-dessous", "ligne": (exc or err).strip()[:220], "api": ""}
