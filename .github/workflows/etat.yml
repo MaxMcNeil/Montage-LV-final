@@ -1,0 +1,49 @@
+name: État
+
+# Écrit ETAT.md : état de chaque workflow, cause des échecs en clair, quand ça se débloque, quoi faire.
+# Ne modifie aucun autre workflow. Commit seulement si l'état change.
+on:
+  workflow_run:
+    workflows: ["Montage final"]
+    types: [completed]
+  workflow_dispatch:      # aucune exécution planifiée : seulement après tes propres lancements, ou à la main
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: etat
+  cancel-in-progress: true
+
+jobs:
+  etat:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            .github
+            ETAT.md
+          sparse-checkout-cone-mode: false
+      - name: État des workflows
+        id: e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 .github/etat/etat.py > etat.log
+          tail -n 1 etat.log
+          grep -q '^CHANGED$' etat.log && echo "changed=1" >> "$GITHUB_OUTPUT" || true
+      - name: Enregistrer ETAT.md (seulement si l'état a changé)
+        if: steps.e.outputs.changed == '1'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ETAT.md
+          git diff --cached --quiet && exit 0
+          git commit -q -m "état des workflows"
+          for i in 1 2 3 4 5; do git pull --rebase -q origin "${GITHUB_REF_NAME}" && git push -q origin "HEAD:${GITHUB_REF_NAME}" && exit 0; sleep $((i * 4)); done
+          echo "::warning::ETAT.md non enregistré (dépôt très actif) : il le sera au prochain passage"
+
