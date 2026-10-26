@@ -311,7 +311,7 @@ def main(argv=None) -> int:
     if opts.get("ouverture_choc") == "oui":
         opener = pick_opener(ai, att, lang, orient, work, plan.get("hook", ""))
         if opener is None:
-            log.warning("Ouverture choc demandée mais aucune vidéo jointe utilisable : la vidéo commence normalement")
+            log.info("Ouverture choc : aucune vidéo jointe → la vidéo commence normalement")
 
     # 5) ligne de temps
     from .media import black_start

@@ -91,7 +91,8 @@ du dépôt vdo-BACKGROUND-replace-GREEN-, section « Chaîne ». En cas d'échec
 
 ## ⚡ Ouverture choc (facultatif)
 
-*Run workflow* → menu **ouverture_choc** → `oui` (par défaut `non`) ; ou `ouverture_choc: oui` dans la description
+**Activée par défaut** (release, *Run workflow* et chaîne automatique fond vert → montage → Shorts). Sans vidéo jointe,
+la vidéo commence normalement. Pour la couper : menu **ouverture_choc** → `non`, ou `ouverture_choc: non` dans la description
 d'une release ou dans les consignes. La vidéo finale **commence** alors par le passage le plus fort / choquant
 (4 à 12 s, phrases complètes, sous-titré) de ta **vidéo jointe** (release ou Drive), qui surgit du noir ; puis tu
 apparais et l'accroche s'affiche. L'IA choisit le passage en lisant la transcription de l'extrait ; un passage imposé

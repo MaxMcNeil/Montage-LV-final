@@ -47,10 +47,10 @@ on:
         required: false
         default: ""
       ouverture_choc:
-        description: "Commencer par le passage le plus choquant de la vidéo jointe (release / Drive)"
+        description: "Commencer par le passage le plus choquant de la vidéo jointe (release / Drive) — sans vidéo jointe : début normal"
         type: choice
-        options: [non, oui]
-        default: non
+        options: [oui, non]
+        default: oui
       mots_cles:
         description: "Mots-clés : après « écoutez ça / écoutez-moi ça / écoutez ce qu'il (elle) dit / ce qu'ils disent », insérer le passage de la vidéo jointe qui correspond"
         type: choice
