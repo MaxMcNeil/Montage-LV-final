@@ -199,7 +199,7 @@ def _lexical(occ: list, words: list, vids: list, maxd: float, taken: list) -> li
     return out
 
 
-def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float) -> list[dict]:
+def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid: list | None = None) -> list[dict]:
     """Passage choisi pour chaque annonce : {"n", "video", "a", "b", "confidence", "why", "check"}."""
     by = {x["id"]: x for x in vids}
     ann = []
@@ -214,13 +214,15 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float) -> li
             break
         j = None
         if ai and ai.ok:
-            ex = "; ".join(f"annonce {n} : ne reprends pas {v} {a:.0f}-{b:.0f} s (refusé à la vérification)"
-                           for n, lst in excluded.items() for v, a, b in lst) or "—"
+            ex = "; ".join([f"passage déjà montré en ouverture, à ne pas reprendre : « {by[v]['name']} » {a:.0f}-{b:.0f} s"
+                            for v, a, b in (avoid or []) if v in by] +
+                           [f"annonce {n} : ne reprends pas {v} {a:.0f}-{b:.0f} s (refusé à la vérification)"
+                            for n, lst in excluded.items() for v, a, b in lst]) or "—"
             j = ai.json(PICK.format(lang=lang, annonces="\n".join(ann[n] for n in todo), videos=_videos_text(vids),
                                     dmin=4, dmax=int(maxd), exclude=ex))
         picks = (j or {}).get("choices") if isinstance(j, dict) else None
         if not isinstance(picks, list):
-            taken = [(r["video"], r["a"], r["b"]) for r in res.values()]
+            taken = [(r["video"], r["a"], r["b"]) for r in res.values()] + list(avoid or [])
             picks = _lexical([occ[n] for n in todo], words, vids, maxd, taken)
             picks = [dict(p, n=todo[p["n"]]) for p in picks]
         cand = {}
@@ -233,6 +235,9 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float) -> li
             if n not in todo or x is None or n in cand:
                 continue
             a, b = _clamp(x, a, b, maxd)
+            from .cadence import clashes
+            if clashes((a, b), [(a2, b2) for v, a2, b2 in (avoid or []) if v == x["id"]]):
+                continue   # déjà montré en ouverture choc : l'annonce reprendra un autre passage
             cand[n] = {"n": n, "video": x["id"], "a": a, "b": b, "confidence": p.get("confidence"),
                        "why": str(p.get("why") or "")[:200]}
         # vérification indépendante
@@ -263,7 +268,7 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float) -> li
     # annonce restée sans passage (IA partielle) : choix par mots communs, pour ne jamais en laisser une vide
     miss = [n for n in range(len(occ)) if n not in res and -1 - n not in res]
     if miss:
-        taken = [(r["video"], r["a"], r["b"]) for r in res.values()]
+        taken = [(r["video"], r["a"], r["b"]) for r in res.values()] + list(avoid or [])
         for p in _lexical([occ[n] for n in miss], words, vids, maxd, taken):
             x = by[p["video"]]
             a, b = _clamp(x, p["start"], p["end"], maxd)

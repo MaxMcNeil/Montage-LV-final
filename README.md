@@ -89,6 +89,21 @@ Shorts dans Push-overlay. Résultat : release **`out-chaine-<id>`** (supprimée 
 fond vert) + variable `CHAINE_APP_ID` / secret `CHAINE_APP_KEY` (ou secret `CHAINE_TOKEN`). Guide complet : README
 du dépôt vdo-BACKGROUND-replace-GREEN-, section « Chaîne ». En cas d'échec : **Re-run jobs** sur le run.
 
+## 🎞️ Rythme des extraits (rétention, automatique)
+
+Pour garder l'attention, tes vidéos jointes reviennent régulièrement à l'écran :
+- **5 premières minutes : jamais plus de 60 s sans un extrait** ;
+- **ensuite : jamais plus de 2 min** (vidéo de plus de 5 min).
+
+Les extraits déjà prévus (plan de l'IA, « écoutez ça », Vid-o-presse-finder) comptent ; là où il en manque, un passage
+de tes vidéos jointes est ajouté, **seulement s'il est cohérent avec ce que tu dis à ce moment-là** :
+point d'insertion dans un vrai silence en fin de phrase (jamais pendant que tu parles), passage de 6 à 15 s en phrases
+complètes choisi d'après ce que tu dis avant et après, puis **2e lecture indépendante** qui vérifie le lien ; au moins
+25 s entre deux extraits ; **jamais deux fois le même passage** (celui de l'ouverture choc compris). Aucun passage
+cohérent → pas d'extrait (mieux vaut un trou qu'un hors-sujet) : PLAN.md, ligne « Rythme des extraits », liste chaque
+extrait ajouté et chaque trou avec la raison. Chaque extrait a sa **propre légende** (ce que montre ce passage).
+Pour couper : `rythme: non` dans les consignes ou la description de la release.
+
 ## ⚡ Ouverture choc (facultatif)
 
 **Activée par défaut** (release, *Run workflow* et chaîne automatique fond vert → montage → Shorts). Sans vidéo jointe,

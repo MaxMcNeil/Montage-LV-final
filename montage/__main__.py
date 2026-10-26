@@ -49,7 +49,7 @@ def options(path: str | None) -> dict:
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا"}
     for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs",
-              "mots_cles"):
+              "mots_cles", "rythme"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
@@ -175,6 +175,20 @@ def main(argv=None) -> int:
     maxd = float(opts["duree_max_insert"] or 25)
     max_ins = int(opts["max_inserts"] or 6)
     inserts = []
+    from .cadence import clashes, passage_label
+    used: dict = {}   # passages déjà pris par vidéo jointe : {id: [(début, fin), …]} — jamais deux fois le même
+
+    def label_for(x, a0_, b0_):
+        return passage_label(ai, x, a0_, b0_, lang, work, x.get("label") or _pretty(x["name"]))
+
+    # 4·0) ouverture choc : choisie en premier, son passage n'est plus réutilisé ensuite
+    opener = None
+    if opts.get("ouverture_choc") == "oui":
+        opener = pick_opener(ai, att, lang, orient, work, plan.get("hook", ""), label_for)
+        if opener is None:
+            log.info("Ouverture choc : aucune vidéo jointe → la vidéo commence normalement")
+        else:
+            used.setdefault(opener["attachment"], []).append(opener["clip"])
     for k, ins in enumerate(plan["inserts"]):
         x = by_id.get(ins["attachment"])
         if not x or len(inserts) >= 12:  # tes vidéos passent avant la limite des extraits de presse
@@ -188,17 +202,35 @@ def main(argv=None) -> int:
                 log.warning("passage imposé hors de la vidéo %s (%.0f s) : ignoré", x["name"], x["duration"])
                 a0, b0 = choose_bounds(s_, want0, want1 if want1 > want0 else x["duration"], maxd, x["duration"])
         else:
+            if want1 > want0 and want1 - want0 < 6:   # extrait trop court pour être compris : au moins ~6 s
+                want1 = want0 + 12
             a0, b0 = choose_bounds(s_, want0, want1 if want1 > want0 else x["duration"], maxd, x["duration"])
+        if clashes((a0, b0), used.get(x["id"], [])):
+            # même passage que l'ouverture choc ou qu'un extrait précédent : on prend la suite de la vidéo, sinon rien
+            nxt = max(u1 for u0, u1 in used[x["id"]] if min(u1, b0) - max(u0, a0) > 0)
+            if x.get("cut") or nxt > x["duration"] - 4:
+                log.info("extrait « %s » %.0f-%.0f s ignoré : passage déjà utilisé", x["name"], a0, b0)
+                continue
+            a0, b0 = choose_bounds(s_, nxt + 0.2, nxt + 0.2 + max(8.0, b0 - a0), maxd, x["duration"])
+            if clashes((a0, b0), used.get(x["id"], [])):
+                log.info("extrait « %s » ignoré : passage déjà utilisé", x["name"])
+                continue
         asset = prepare_insert(Path(x["path"]), a0, b0, orient, work, f"insert_att{k}", lang, ai, s_ if s_ else None,
                                x.get("lang"))
         if asset:
-            asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
+            asset["credit"] = {"label": label_for(x, a0, b0)}
             asset["source"] = f"pièce jointe « {x['name']} » ({tc(a0)} → {tc(b0)})"
             inserts.append({"after": ins["after"], "asset": asset, "attachment": x["id"], "clip": (a0, b0)})
+            used.setdefault(x["id"], []).append((a0, b0))
     # 4a) mots-clés « écoutez ça… » : un passage de ta vidéo jointe juste après chaque annonce
     kw_info = None
     if opts.get("mots_cles") == "oui" and words:
-        kw_info = keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd)
+        kw_info = keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd,
+                                  avoid=[(opener["attachment"], *opener["clip"])] if opener else [],
+                                  label_for=label_for)
+        for i in inserts:
+            if i.get("kw") is not None:
+                used.setdefault(i["attachment"], []).append(i["clip"])
     # 4b) résultats de Vid-o-presse-finder (dernier lot) placés selon ce que tu dis
     lot_info = None
     finder_used = False
@@ -306,20 +338,29 @@ def main(argv=None) -> int:
         log.info("Extraits de presse : %d trouvés, %d gardés (max_inserts)", len(other), max_ins)
     inserts = mine_ins + other[:max_ins]
 
-    # 4c) ouverture choc : le passage le plus fort de l'extrait joint, en tout premier
-    opener = None
-    if opts.get("ouverture_choc") == "oui":
-        opener = pick_opener(ai, att, lang, orient, work, plan.get("hook", ""))
-        if opener is None:
-            log.info("Ouverture choc : aucune vidéo jointe → la vidéo commence normalement")
+    # 4d) rythme (rétention) : 5 premières minutes → un extrait au moins toutes les 60 s ; ensuite toutes les 2 min
+    from .pauses import merge
+    sil_all = merge(tr.get("silences") or [], quiet)
+    rythme_info = None
+    if opts.get("rythme") == "oui" and words:
+        from .cadence import fill
+
+        def _prep(x, a_, b_, name):
+            s2 = x.get("sentences") or []
+            asset_ = prepare_insert(Path(x["path"]), a_, b_, orient, work, name, lang, ai, s2 if s2 else None, x.get("lang"))
+            if asset_:
+                asset_["credit"] = {"label": label_for(x, a_, b_)}
+            return asset_
+        try:
+            rythme_info = fill(ai, words, sents, att, inserts, used, sil_all, lang, orient, work, bool(opener), _prep)
+        except Exception as e:  # noqa: BLE001 - le rythme est un bonus : jamais bloquant
+            log.warning("rythme des extraits abandonné : %s", e)
 
     # 5) ligne de temps
     from .media import black_start
     b0 = black_start(vsrc)
     if b0 > 0:
         log.info("Images noires au début de ta vidéo (%.2f s) : retirées", b0)
-    from .pauses import merge
-    sil_all = merge(tr.get("silences") or [], quiet)
     long_gap = 2.0 if opts.get("silences_longs") == "oui" else None
     keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
@@ -393,11 +434,12 @@ def main(argv=None) -> int:
     except Exception as e:  # noqa: BLE001
         qc = [(False, f"contrôle qualité impossible : {e}")]
     write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats,
-                 kw_info)
+                 kw_info, rythme_info)
     return 0
 
 
-def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd) -> dict:
+def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd, avoid=None,
+                    label_for=None) -> dict:
     from .keywords import choose, find_occurrences, pause_after
     from .pauses import merge
     occ = find_occurrences(words)
@@ -420,8 +462,8 @@ def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lan
         real.append(o)
     occ = real
     # 2) passage choisi (IA + vérification) uniquement pour les vraies annonces
-    picks = {p["n"]: p for p in choose(ai, [o for o in occ if o["at"] is not None], words, vids, lang, maxd)} \
-        if vids else {}
+    picks = {p["n"]: p for p in choose(ai, [o for o in occ if o["at"] is not None], words, vids, lang, maxd,
+                                       avoid=avoid or [])} if vids else {}
     idx = [n for n, o in enumerate(occ) if o["at"] is not None]
     picks = {idx[k]: p for k, p in picks.items() if k < len(idx)}
     for n, o in enumerate(occ):
@@ -445,7 +487,7 @@ def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lan
         if not asset:
             item["why"] = "passage illisible"
             continue
-        asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
+        asset["credit"] = {"label": label_for(x, p["a"], p["b"]) if label_for else (x.get("label") or _pretty(x["name"]))}
         asset["source"] = f"MOT-CLÉ « {o['phrase']} » — pièce jointe « {x['name']} » ({tc(p['a'])} → {tc(p['b'])})"
         s_i = next((s["i"] for s in sents if s["w0"] <= o["w1"] <= s["w1"]), 0)
         inserts.append({"after": s_i, "asset": asset, "attachment": x["id"], "clip": (p["a"], p["b"]), "forced_t": t,
@@ -479,7 +521,7 @@ Choisis UN passage de 4 à 12 secondes, qui commence et finit sur une phrase com
 Réponds en JSON : {{"video": "id", "start": secondes, "end": secondes, "why": "pourquoi c'est le plus fort"}}."""
 
 
-def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str):
+def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str, label_for=None):
     """Passage le plus choquant (4 à 12 s) des vidéos jointes, préparé comme un extrait inséré."""
     vids = [x for x in att if x["kind"] == "video" and x.get("duration", 0) >= 3]
     if not vids:
@@ -508,7 +550,8 @@ def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str):
     b = min(b, a + 15.0)
     asset = prepare_insert(Path(x["path"]), a, b, orient, work, "insert_opener", lang, ai, s_ if s_ else None, x.get("lang"))
     if asset:
-        asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
+        asset["credit"] = {"label": label_for(x, a, b) if label_for else (x.get("label") or _pretty(x["name"]))}
+        asset["attachment"], asset["clip"] = x["id"], (a, b)
         asset["source"] = f"OUVERTURE CHOC — pièce jointe « {x['name']} » ({tc(a)} → {tc(b)})" + \
             (f" — {pick[3]}" if pick[3] else "")
         log.info("Ouverture choc : %s de %.1f s à %.1f s", x["name"], a, b)
@@ -529,7 +572,7 @@ def _fmt_date(d: str) -> str:
 
 
 def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None,
-                 pause_stats=None, kw_info=None):
+                 pause_stats=None, kw_info=None, rythme_info=None):
     L = []
     bad0 = [m for ok, m in (qc or []) if not ok]
     # 1re ligne = le verdict (c'est elle que tu regardes avant de publier ; reprise dans le titre de la release)
@@ -578,6 +621,24 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         for g in kw_info.get("ignored") or []:
             L.append(f"  - {tc(out_time(segs, g['t0']) or 0)} « {g['text']}… » → ignoré : tu continues ta phrase, ce "
                      f"n'est pas une annonce d'extrait")
+    if rythme_info is not None:
+        ins_t = sorted(s.out0 for s in segs if s.kind == "insert" and not s.insert.get("opener"))
+        first5 = sum(1 for t in ins_t if t < 300)
+        L.append(f"- Rythme des extraits ({rythme_info['rule']}) : {len(ins_t)} extrait(s) au total, dont {first5} dans les "
+                 f"5 premières minutes — {len(rythme_info['added'])} ajouté(s) pour tenir le rythme")
+        if rythme_info.get("why"):
+            L.append(f"  - ⚠ rien ajouté : {rythme_info['why']}")
+        placed_t = {round(s.insert.get("forced_t") or -1, 2) for s in segs if s.kind == "insert" and s.insert.get("rythme")}
+        for r in rythme_info["added"]:
+            ok_ = round(r["t"], 2) in placed_t
+            ck = r.get("check") or {}
+            L.append(f"  - {tc(out_time(segs, r['t']) or 0)} → {r['video']} {tc(r['a'])} → {tc(r['b'])} : {r['why']}"
+                     + (f" — vérifié ✅ ({ck.get('score')}/10)" if ck.get("ok") else "")
+                     + ("" if ok_ else " — ⚠ refusé au montage (silence pas assez sûr)"))
+        for h in rythme_info["holes"]:
+            a_, b_ = out_time(segs, h["t0"]), out_time(segs, h["t1"])
+            if a_ is not None and b_ is not None:
+                L.append(f"  - ⚠ entre {tc(a_)} et {tc(b_)} : pas d'extrait — {h['why']}")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         if lot_info.get("origine"):

@@ -133,6 +133,7 @@ DEFAULTS = {
     "fin": "oui",                   # carte de fin « merci / abonnez-vous »
     "langue": "auto",               # auto | fr | ar | it | en ...
     "silences_longs": "oui",        # oui : tout silence de plus de 2 s est raccourci (avec effet doux selon ta position)
+    "rythme": "oui",                # oui : 5 premières min → un extrait au moins toutes les 60 s ; ensuite toutes les 2 min
     "mots_cles": "oui",             # oui : après « écoutez ça / écoutez ce qu'il dit… », un passage de ta vidéo jointe
     "ouverture_choc": "oui",        # oui : la vidéo commence par le passage le plus fort de ta vidéo jointe
                                     # (aucune vidéo jointe → la vidéo commence normalement, comme « non »)
