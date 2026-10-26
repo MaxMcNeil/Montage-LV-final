@@ -4,6 +4,8 @@ name: Montage final
 # Joins aussi tes photos / vidéos : elles seront placées au bon moment. Vidéo trop lourde : lien Google Drive dans
 # la description. Tu peux écrire des consignes et des réglages dans la description (voir README).
 # Résultat : release « 🎬 RÉSULTAT — Montage final » (ou Google Drive si > 1,9 Go) + PLAN.md (quoi / où / quand).
+# 📌 RÉFLEXE : titre du résultat / 1re ligne de PLAN.md → « ✅ prêt à publier » = publie ; « ⚠ à vérifier » = PLAN.md
+#    dit quoi et à quel moment : regarde ce passage avant de publier.
 
 on:
   release:
@@ -14,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "Vidéo : lien Google Drive, lien direct ou tag de release (vide = dernière release « montage… »)"
+        description: "Vidéo : lien Google Drive, lien direct ou tag de release (vide = dernière release « montage… »). 📌 Après le montage : titre du résultat ✅ = publie, ⚠ = regarde PLAN.md"
         required: false
         default: ""
       pieces_jointes:

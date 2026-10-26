@@ -1,5 +1,10 @@
 # Montage LV final
 
+> 📌 **Ton réflexe après chaque montage** : le titre du résultat et la **1re ligne de PLAN.md** donnent le verdict.
+> **✅ prêt à publier** → tu peux publier sans tout revisionner.
+> **⚠ à vérifier** → la ligne « Contrôle qualité » de PLAN.md dit exactement quoi et à quel moment : regarde ce
+> passage avant de publier. (Valable pour tous les montages : release, *Run workflow* et chaîne.)
+
 Tu déposes ta vidéo face caméra (horizontale ou verticale) avec, si tu veux, des photos et des vidéos.
 GitHub la **transcrit**, **comprend ce que tu dis**, puis **monte** la vidéo : photos, articles, chiffres et
 extraits vidéo arrivent **au moment exact où tu en parles**. Tout est gratuit et tourne sur GitHub.

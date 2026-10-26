@@ -531,7 +531,13 @@ def _fmt_date(d: str) -> str:
 def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None,
                  pause_stats=None, kw_info=None):
     L = []
-    L.append(f"# Montage — {plan.get('title') or 'vidéo'}\n")
+    bad0 = [m for ok, m in (qc or []) if not ok]
+    # 1re ligne = le verdict (c'est elle que tu regardes avant de publier ; reprise dans le titre de la release)
+    L.append("# ✅ PRÊT À PUBLIER" if qc and not bad0 else "# ⚠ À VÉRIFIER AVANT DE PUBLIER")
+    L.append("> 📌 **Ton réflexe** : regarde cette 1re ligne. **✅** = tu peux publier sans tout revisionner. "
+             "**⚠** = la ligne « Contrôle qualité » ci-dessous dit exactement quoi et à quel moment ; regarde ce passage "
+             "avant de publier.\n")
+    L.append(f"## Montage — {plan.get('title') or 'vidéo'}\n")
     if qc:
         bad = [m for ok, m in qc if not ok]
         L.append(("**Contrôle qualité : ✅ tout est bon** — " + " · ".join(m for _, m in qc)) if not bad else

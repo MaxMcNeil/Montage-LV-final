@@ -17,6 +17,7 @@ err() { echo "::error title=Chaîne::$*"; { echo "### ❌ Chaîne arrêtée apr�
 
 [ -s "$F" ] || err "Aucune vidéo rendue"
 MB=$(( $(stat -c %s "$F") / 1048576 ))
+if head -1 output/PLAN.md 2>/dev/null | grep -q "✅"; then VERDICT="✅ prêt à publier"; else VERDICT="⚠ à vérifier (voir PLAN.md)"; fi
 NAME="montage-${BASE:-video}.mp4"
 cp "$F" "output/$NAME"
 
@@ -44,13 +45,13 @@ FID=$(rclone lsjson "$DST" --no-mimetype | python3 -c 'import sys,json;a=json.lo
 
 # 2) résultat visible : release out-chaine-<id> (ou Drive si trop lourd)
 OU=""
-{ echo "🔗 **Chaîne \`$CHAINE_ID\`** — montage terminé ($(date -u +%d/%m/%Y)). Release supprimée automatiquement après 2 jours."
+{ echo "## $VERDICT"; echo; echo "🔗 **Chaîne \`$CHAINE_ID\`** — montage terminé ($(date -u +%d/%m/%Y)). Release supprimée automatiquement après 2 jours."
   echo; echo "Les Shorts de ce montage arrivent dans Push-overlay, release \`$TAG\`."
   [ -n "${CHAINE_ORIGINE:-}" ] && echo "Fond vert : ${CHAINE_ORIGINE}"
   echo; echo "---"; echo; head -c 110000 output/PLAN.md; } > /tmp/notes-chaine.md
 if [ "$MB" -lt "${RELEASE_MAX_MB:-1900}" ]; then
   if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
-     || gh release create "$TAG" --repo "$REPO" --prerelease --title "🔗 CHAÎNE $CHAINE_ID — Montage final" --notes-file /tmp/notes-chaine.md; then
+     || gh release create "$TAG" --repo "$REPO" --prerelease --title "🔗 CHAÎNE $CHAINE_ID — Montage final — $VERDICT" --notes-file /tmp/notes-chaine.md; then
     for i in 1 2 3; do
       if gh release upload "$TAG" "output/$NAME" output/PLAN.md output/plan.json --repo "$REPO" --clobber; then
         OU="release [$TAG](https://github.com/$REPO/releases/tag/$TAG)"; break
@@ -89,7 +90,7 @@ if [ -s input/joints-utilises.txt ]; then
     || echo "::warning::Le dossier « $JOINTS » n'a pas pu être vidé : retire ces fichiers à la main avant la prochaine vidéo."
 fi
 
-MSG="Montage prêt ($MB Mo) → $OU · Shorts lancés dans Push-overlay"
+MSG="$VERDICT — montage ($MB Mo) → $OU · Shorts lancés dans Push-overlay"
 { echo "### ✅ 🔗 Chaîne \`$CHAINE_ID\` — $MSG"
   [ -s input/joints-utilises.txt ] && { echo; echo "Fichiers pris dans « $JOINTS » :"; sed 's/^/- /' input/joints-utilises.txt; }
   echo; cat output/PLAN.md; } >> "$SUM"
