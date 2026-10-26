@@ -329,10 +329,17 @@ def prepare_insert(src: Path, a: float, b: float, orient: str, work: Path, name:
     d = q(b - a)
     if d < 2.0:
         return None
-    n = frames(d)
     vout, aout = work / f"{name}.mp4", work / f"{name}.wav"
     info = probe(src)
-    vf = (f"[0:v]fps={FPS},split[a][b];[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
+    if info["duration"] and b > info["duration"]:   # jamais au-delà de la fin de la vidéo jointe
+        b = info["duration"]
+        d = q(b - a)
+        if d < 2.0:
+            return None
+    n = frames(d)
+    from .media import HDR_TM, is_hdr
+    tm = (HDR_TM + ",") if is_hdr(src) else ""   # vidéo jointe HDR (téléphone récent) : couleurs normales, pas délavées
+    vf = (f"[0:v]{tm}fps={FPS},split[a][b];[a]scale={W}:{H}:force_original_aspect_ratio=increase,crop={W}:{H},"
           f"scale={W // 8}:{H // 8},boxblur=8:2,scale={W}:{H},eq=brightness=-0.15:saturation=0.6[bg];"
           f"[b]scale={W}:{H}:force_original_aspect_ratio=decrease,setsar=1[fg];[bg][fg]overlay=(W-w)/2:(H-h)/2,"
           f"tpad=stop_mode=clone:stop_duration=2,trim=end_frame={n},setpts=N/{FPS}/TB,format=yuv420p[v]")

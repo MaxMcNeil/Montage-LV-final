@@ -74,6 +74,9 @@ def _punctuate(words: list, segments: list) -> list:
 
 
 _groq_dead_until = 0.0
+# modèle de transcription Groq : si Groq retire un modèle un jour, le suivant est pris automatiquement
+_GROQ_MODELS = [m for m in (os.environ.get("GROQ_ASR_MODEL"), "whisper-large-v3", "whisper-large-v3-turbo") if m]
+_groq_bad_models: set = set()
 
 
 def _groq(mp3: Path, lang: str | None):
@@ -87,8 +90,10 @@ def _groq(mp3: Path, lang: str | None):
     for attempt in range(3):
         wait = 1e9
         for i, k in enumerate(ks):
-            form = {"model": os.environ.get("GROQ_ASR_MODEL", "whisper-large-v3"), "response_format": "verbose_json",
-                    "temperature": "0"}
+            model = next((m for m in _GROQ_MODELS if m not in _groq_bad_models), None)
+            if model is None:
+                return None
+            form = {"model": model, "response_format": "verbose_json", "temperature": "0"}
             files = [("file", ("audio.mp3", data, "audio/mpeg")), ("timestamp_granularities[]", (None, "word")),
                      ("timestamp_granularities[]", (None, "segment"))]
             if lang:
@@ -107,6 +112,12 @@ def _groq(mp3: Path, lang: str | None):
                 log.info("Groq (clé %d) : limite atteinte", i + 1)
                 continue
             if r.status_code != 200:
+                low = r.text.lower()
+                if r.status_code in (400, 404) and "model" in low and re.search(r"decommission|not found|does not exist|"
+                                                                                 r"not supported|deprecated", low):
+                    log.warning("Groq : modèle %s retiré → modèle suivant", model)
+                    _groq_bad_models.add(model)
+                    return _groq(mp3, lang)
                 log.warning("Groq (clé %d) : HTTP %s %s", i + 1, r.status_code, r.text[:160])
                 continue
             j = r.json()

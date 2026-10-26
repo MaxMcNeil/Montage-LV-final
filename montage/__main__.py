@@ -90,6 +90,9 @@ def main(argv=None) -> int:
         raise SystemExit("La vidéo déposée est illisible.")
     orient = "v" if info["h"] > info["w"] * 1.05 else "h"
     log.info("Vidéo : %dx%d, %.0f s, %s", info["w"], info["h"], info["duration"], "verticale" if orient == "v" else "horizontale")
+    # vidéo 4K / 60 i/s / HDR : copie de travail légère pour l'image (le son vient toujours de l'original)
+    from .media import make_proxy
+    vsrc, vinfo = make_proxy(src, info, work)
 
     # 1) transcription
     want_lang = opts["langue"] if opts["langue"] not in ("", "auto") else None
@@ -99,9 +102,10 @@ def main(argv=None) -> int:
     words = tr["words"]
     # silences : détection adaptative (bruit de fond réel de ta pièce) + réparation des mots « étirés »
     quiet = []
-    if info["audio"] and words and (opts.get("silences_longs") == "oui" or opts["couper_silences"] != "non"):
-        from .pauses import quiet_intervals, repair_words
+    if info["audio"] and words:
+        from .pauses import drop_phantoms, quiet_intervals, repair_words
         quiet = quiet_intervals(src, work)
+        drop_phantoms(words, quiet)       # mots inventés par la transcription pendant un silence
         nfix = repair_words(words, quiet)
         if nfix:
             log.info("Silences : %d mot(s) à l'horodatage étiré corrigé(s)", nfix)
@@ -295,7 +299,12 @@ def main(argv=None) -> int:
                 except Exception as e:  # noqa: BLE001
                     log.warning("carte article abandonnée : %s", e)
         ai.save_quota()
-    inserts = inserts[:max_ins + sum(1 for i in plan["inserts"])]
+    # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
+    mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
+    other = [i for i in inserts if not (i.get("attachment") or i.get("kw") is not None)]
+    if len(other) > max_ins:
+        log.info("Extraits de presse : %d trouvés, %d gardés (max_inserts)", len(other), max_ins)
+    inserts = mine_ins + other[:max_ins]
 
     # 4c) ouverture choc : le passage le plus fort de l'extrait joint, en tout premier
     opener = None
@@ -306,7 +315,7 @@ def main(argv=None) -> int:
 
     # 5) ligne de temps
     from .media import black_start
-    b0 = black_start(src)
+    b0 = black_start(vsrc)
     if b0 > 0:
         log.info("Images noires au début de ta vidéo (%.2f s) : retirées", b0)
     from .pauses import merge
@@ -327,7 +336,7 @@ def main(argv=None) -> int:
     if long_gap:
         try:
             from .pauses import cut_effects
-            pause_stats = cut_effects(segs, src, keep)
+            pause_stats = cut_effects(segs, vsrc, keep)
         except Exception as e:  # noqa: BLE001 - un effet en échec ne doit jamais bloquer le montage (coupe nette)
             log.warning("effets de coupe abandonnés (coupes nettes) : %s", e)
     if not segs:
@@ -337,7 +346,7 @@ def main(argv=None) -> int:
              total, len(inserts), sum(1 for s in segs if s.kind == "insert" and not s.insert.get("opener")))
 
     # 6) textes à l'écran
-    face = face_center(src)
+    face = face_center(vsrc)
     log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
     sub = ASS(orient, lang, face)
     h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
@@ -370,7 +379,7 @@ def main(argv=None) -> int:
 
     # 7) rendu
     fonts = Path(a.fonts).resolve() if Path(a.fonts).is_dir() else None
-    ctx = Ctx(src.resolve(), info, face, orient, work.resolve(), ass_path, fonts)
+    ctx = Ctx(Path(vsrc).resolve(), vinfo, face, orient, work.resolve(), ass_path, fonts)
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
     aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", chap_times)

@@ -42,6 +42,13 @@ ATT = IN / "attachments"
 DRIVE_RE = r"https?://(?:drive|docs)\.google\.com/[^\s)>\"'\]]+"
 
 
+MOI_RE = re.compile(r"^moi(?![a-zà-ÿ])", re.I)   # « moi.mp4 », « Moi_debat.mov », « moi2 » — pas « moins… », « Moïse… »
+
+
+def is_mine(name: str) -> bool:
+    return bool(MOI_RE.match(name or ""))
+
+
 def die(msg: str):
     print(f"::error::{msg}")
     sys.exit(1)
@@ -85,8 +92,14 @@ def rclone_remote() -> str | None:
     _remote = ""
     if not conf:
         return None
+    for k in range(3):   # installation (réseau parfois capricieux) : 3 essais, puis message clair
+        if shutil.which("rclone"):
+            break
+        subprocess.run("curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1", shell=True)
     if not shutil.which("rclone"):
-        subprocess.run("curl -sSf https://rclone.org/install.sh | sudo bash >/dev/null", shell=True)
+        print("::warning::rclone n'a pas pu être installé : Google Drive en mode lien public (gdown) seulement")
+        WARN.append("rclone indisponible (installation échouée) : Google Drive lu en mode lien public seulement")
+        return None
     p = Path.home() / ".config/rclone/rclone.conf"
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(conf + "\n", encoding="utf-8")
@@ -165,7 +178,7 @@ def waiting_releases(exclude: set) -> list[str]:
         if age > dt.timedelta(days=3):
             continue
         names = asset_names(t)
-        if names and not any(n.lower().startswith("moi") for n in names):
+        if names and not any(is_mine(n) for n in names):
             out_tags.append(t)
     return out_tags
 
@@ -261,6 +274,8 @@ def chaine():
     for f in ("joints-utilises.txt", "joints-liste.txt"):
         (IN / f).unlink(missing_ok=True)
     rem = rclone_remote()
+    if not rem and os.environ.get("RCLONE_CONF", "").strip():
+        die("Chaîne : rclone n'a pas pu être installé sur la machine GitHub (réseau) : relance ce run (« Re-run jobs »).")
     if not rem:
         die("Chaîne : le secret RCLONE_CONF est absent dans montage-lv-final. La chaîne transmet la vidéo par Google Drive "
             "(privé) : ajoute RCLONE_CONF (même compte Google que RCLONE_CONFIG du dépôt fond vert), puis « Re-run jobs ».")
@@ -313,7 +328,7 @@ def chaine():
     (IN / "warnings.txt").write_text("\n".join(WARN), encoding="utf-8")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
     (IN / "cuts.json").write_text(json.dumps(cuts, ensure_ascii=False, indent=1), encoding="utf-8")
-    stem = re.sub(r"^moi[-_ ]*", "", main_video.stem, flags=re.I) or main_video.stem
+    stem = re.sub(r"^moi(?![a-zà-ÿ])[-_ ]*", "", main_video.stem, flags=re.I) or main_video.stem
     base = re.sub(r"[^\w.-]", "_", stem)[:40] or "video"
     out("video", str(dst))
     out("base", base)
@@ -346,7 +361,7 @@ def main():
             tag = src
     if tag and os.environ.get("GITHUB_EVENT_NAME") == "release" and not tag.lower().startswith("montage"):
         names = asset_names(tag)
-        if not any(n.lower().startswith("moi") for n in names) and not re.search(DRIVE_RE, release_body(tag)):
+        if not any(is_mine(n) for n in names) and not re.search(DRIVE_RE, release_body(tag)):
             # release sans ta vidéo : c'est une réserve de pièces jointes pour le prochain montage
             print(f"Release {tag} : pas de fichier « moi… » ni de lien Drive → pièces jointes en attente du prochain montage")
             out("skip", "1")
@@ -409,7 +424,7 @@ def main():
     #   1. un fichier dont le nom commence par « moi » (moi.mp4, Moi_intro.mov…), où qu'il soit (release ou Drive) ;
     #   2. sinon la plus grosse vidéo jointe à la release (ou donnée en « source ») ;
     #   3. sinon la vidéo du premier lien Drive de la description.
-    mine = big([f for f in files if f.name.lower().startswith("moi")])
+    mine = big([f for f in files if is_mine(f.name)])
     direct = big([f for f in files if not any(f.is_relative_to(RAW / f"lien{k}") for k in range(len(extra)))
                   and not f.relative_to(RAW).parts[0].startswith("attente_")])
     main_video = (mine or direct or big(first_link) or big(files) or [None])[0]

@@ -197,9 +197,19 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
     for i, c in enumerate(chosen):
         c["side"] = "left" if i % 2 == 0 else "right"
     # extrait inséré après ta dernière phrase : la vidéo se termine sur l'extrait (pas de retour muet de 1 s)
-    if pts and words and pts[-1]["t"] >= words[-1]["t1"]:
-        tend = pts[-1]["t"]
+    if pts and words and max(p["t"] for p in pts) >= words[-1]["t1"]:
+        tend = max(p["t"] for p in pts)
         keep = [(a, min(b, tend)) for a, b in keep if a < tend - 1e-6]
+    # point d'insertion à moins de 2 images d'une coupe : calé exactement sur la coupe (sinon il ne pourrait pas être
+    # placé et l'extrait serait perdu)
+    for p in pts:
+        for i, (a, b) in enumerate(keep):
+            if a - 1e-6 <= p["t"] <= b + 1e-6:
+                if p["t"] - a < 2 / FPS:
+                    p["t"] = a
+                elif b - p["t"] < 2 / FPS and i + 1 < len(keep):
+                    p["t"] = keep[i + 1][0]
+                break
     # 3) atomes : plages gardées découpées à chaque frontière
     bounds = sorted({p["t"] for p in pts} | {c["st"] for c in chosen} | {c["en"] for c in chosen})
     atoms = []

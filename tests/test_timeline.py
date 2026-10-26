@@ -88,3 +88,13 @@ def test_quiet_detection_and_word_repair(tmp_path):
     assert any(a < 2.2 and b > 4.8 for a, b in q_)
     w = [{"t0": 1.0, "t1": 4.6, "w": "mot"}, {"t0": 5.0, "t1": 5.5, "w": "suite"}]   # mot « étiré » sur la pause
     assert repair_words(w, q_) == 1 and w[0]["t1"] < 2.4
+
+
+def test_phantom_words_dropped_only_in_silence():
+    from montage.pauses import drop_phantoms
+    w = [{"t0": 0.0, "t1": 0.4, "w": "Bonjour"}, {"t0": 0.5, "t1": 0.9, "w": "à"}, {"t0": 1.0, "t1": 1.4, "w": "tous."},
+         {"t0": 3.0, "t1": 3.4, "w": "Sous-titres"}, {"t0": 3.5, "t1": 3.9, "w": "par"}, {"t0": 4.0, "t1": 4.4, "w": "Amara.org"},
+         {"t0": 6.0, "t1": 6.3, "w": "euh"}, {"t0": 8.0, "t1": 8.4, "w": "Suite."}]
+    quiet = [(1.6, 4.8), (5.8, 6.5)]
+    assert drop_phantoms(w, quiet) == 3
+    assert [x["w"] for x in w] == ["Bonjour", "à", "tous.", "euh", "Suite."]   # un mot isolé calme est gardé

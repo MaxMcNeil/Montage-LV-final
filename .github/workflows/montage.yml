@@ -157,8 +157,10 @@ jobs:
           git clone -q --depth 1 https://github.com/MaxMcNeil/Vid-o-presse-finder vpf \
             || echo "::warning::Vid-o-presse-finder indisponible : IA en mode simple, pas de recherche presse"
           [ -f vpf/requirements.txt ] && pip install -q -r vpf/requirements.txt || true
-          pip install -q -r requirements.txt
-          pip install -q -U yt-dlp
+          # PyPI parfois capricieux : 3 essais avant d'abandonner
+          for i in 1 2 3; do pip install -q -r requirements.txt && ok=1 && break; ok=0; echo "::warning::pip : essai $i échoué"; sleep 15; done
+          [ "$ok" = 1 ] || { echo "::error::Installation des outils Python impossible (PyPI injoignable ?) : relance le run"; exit 1; }
+          pip install -q -U yt-dlp || echo "::warning::mise à jour de yt-dlp impossible (version déjà installée utilisée)"
 
       - name: Caches (modèle de transcription locale, réponses IA, état des quotas)
         uses: actions/cache@v5

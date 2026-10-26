@@ -167,3 +167,41 @@ def cut_effects(segs: list, src: Path, keep: list | None = None, min_cut: float 
                  "%d sur une transition de mise en page", stats["cuts"], stats["gagne"], stats["zoom"], stats["fondu"],
                  stats["page"])
     return stats
+
+
+HALLU = __import__("re").compile(
+    r"amara|sous[- ]?titr|merci d.avoir regard|abonnez[- ]vous|radio[- ]canada|st'? ?501|thanks? for watching|"
+    r"subtitles? by|ترجمة|اشتركوا|grazie per la visione|sottotitoli", __import__("re").I)
+
+
+def drop_phantoms(words: list, quiet: list) -> int:
+    """Mots « fantômes » inventés par la transcription pendant un silence (défaut connu de Whisper : « Sous-titres
+    réalisés par la communauté d'Amara.org », « Merci d'avoir regardé »…). Un mot n'est retiré que s'il tombe
+    entièrement dans un passage où le son est au niveau du bruit de fond, ET qu'il fait partie d'une suite d'au moins
+    3 mots dans ce cas, ou d'une formule fantôme connue. Ta vraie parole n'est jamais à ce niveau sonore."""
+    if not words or not quiet:
+        return 0
+
+    def silent(w):
+        d = max(1e-3, w["t1"] - w["t0"])
+        cov = sum(max(0.0, min(w["t1"], b) - max(w["t0"], a)) for a, b in quiet)
+        return cov >= 0.9 * d
+    flags = [silent(w) for w in words]
+    drop = set()
+    k = 0
+    while k < len(words):
+        if not flags[k]:
+            k += 1
+            continue
+        j = k + 1
+        while j < len(words) and flags[j] and words[j]["t0"] - words[j - 1]["t1"] < 1.0:
+            j += 1
+        text = " ".join(w["w"] for w in words[k:j])
+        if j - k >= 3 or HALLU.search(text):
+            drop.update(range(k, j))
+        k = j
+    if drop:
+        log.info("Transcription : %d mot(s) fantôme(s) retiré(s) (inventés pendant un silence) : « %s »", len(drop),
+                 " ".join(words[i]["w"] for i in sorted(drop))[:160])
+        words[:] = [w for i, w in enumerate(words) if i not in drop]
+    return len(drop)

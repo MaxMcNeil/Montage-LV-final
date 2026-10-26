@@ -21,7 +21,7 @@ NAME="montage-${BASE:-video}.mp4"
 cp "$F" "output/$NAME"
 
 [ -n "${RCLONE_CONF:-}" ] || err "secret RCLONE_CONF absent"
-command -v rclone >/dev/null || curl -sSf https://rclone.org/install.sh | sudo bash >/dev/null
+for _i in 1 2 3; do command -v rclone >/dev/null && break; curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sleep 5; done
 mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
 REMOTE=$(grep -m1 -oE '^\[[^]]+\]' ~/.config/rclone/rclone.conf | tr -d '[]')
 [ -n "$REMOTE" ] || err "RCLONE_CONF illisible"

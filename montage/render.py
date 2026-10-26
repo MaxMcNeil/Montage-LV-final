@@ -287,6 +287,58 @@ def _read(path) -> np.ndarray:
     return a[:, :2]
 
 
+def _wav_map(path) -> np.ndarray:
+    """Son PCM 16 bits lu SANS le charger en mémoire (np.memmap) : une vidéo d'une heure ne sature jamais la machine."""
+    import struct
+    ch = bits = None
+    with open(path, "rb") as f:
+        head = f.read(12)
+        if head[:4] != b"RIFF" or head[8:12] != b"WAVE":
+            raise ValueError("WAV illisible")
+        while True:
+            hdr = f.read(8)
+            if len(hdr) < 8:
+                raise ValueError("WAV sans données")
+            cid, size = hdr[:4], struct.unpack("<I", hdr[4:])[0]
+            if cid == b"data":
+                pos = f.tell()
+                break
+            body = f.read(size + (size & 1))
+            if cid == b"fmt ":
+                ch, bits = struct.unpack("<H", body[2:4])[0], struct.unpack("<H", body[14:16])[0]
+    if ch is None or bits != 16:
+        raise ValueError("WAV non 16 bits")
+    total = (Path(path).stat().st_size - pos) // (2 * ch)
+    if 0 < size < 0xFFFFFFF0:
+        total = min(total, size // (2 * ch))
+    return np.memmap(path, dtype=np.int16, mode="r", offset=pos, shape=(total, ch))
+
+
+class _Main:
+    """Accès par morceaux au son principal (float32 stéréo à la demande)."""
+
+    def __init__(self, path):
+        self.m = None
+        try:
+            self.m = _wav_map(path) if path and Path(path).exists() else None
+        except (ValueError, OSError) as e:
+            log.warning("son principal en lecture directe impossible (%s) : lecture complète", e)
+            self.full = _read(path)
+
+    def __len__(self):
+        return len(self.m) if self.m is not None else len(self.full)
+
+    def get(self, s0: int, n: int) -> np.ndarray:
+        if self.m is None:
+            return self.full[s0:s0 + n]
+        x = np.asarray(self.m[s0:s0 + n], dtype=np.float32) / 32768.0
+        if x.ndim == 1:
+            x = x[:, None]
+        if x.shape[1] == 1:
+            x = np.repeat(x, 2, axis=1)
+        return x[:, :2]
+
+
 def _fade(x: np.ndarray, n_in: int, n_out: int) -> np.ndarray:
     x = x.copy()
     if n_in and len(x) > n_in:
@@ -323,7 +375,7 @@ def sfx_tick() -> np.ndarray:
 def build_audio(segs, main_wav: Path, out: Path, sfx: bool, chapter_times: list) -> Path:
     total = sum(s.n for s in segs) * SPF
     buf = np.zeros((total, 2), dtype=np.float32)
-    main = _read(main_wav) if main_wav and Path(main_wav).exists() else np.zeros((1, 2), np.float32)
+    main = _Main(main_wav)
     pos, prev_end = 0, None
     cut_fade = int(0.008 * SAMPLE_RATE)
     for s in segs:
@@ -339,7 +391,7 @@ def build_audio(segs, main_wav: Path, out: Path, sfx: bool, chapter_times: list)
         for at in s.atoms:
             n = frames(at.b - at.a) * SPF
             s0 = int(round(at.a * SAMPLE_RATE))
-            piece = main[s0:s0 + n]
+            piece = main.get(s0, n)
             if len(piece) < n:
                 piece = np.concatenate([piece, np.zeros((n - len(piece), 2), np.float32)])
             jump = prev_end is None or abs(at.a - prev_end) > 1e-3

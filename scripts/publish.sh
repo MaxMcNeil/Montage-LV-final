@@ -16,16 +16,22 @@ cp "$F" "output/$NAME"
 for t in $(gh release list --repo "$REPO" --limit 100 --json tagName -q '.[].tagName' | grep -E '^out-montage' || true); do
   gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
 done
-for t in $(gh release list --repo "$REPO" --limit 100 --json tagName -q '.[].tagName' | grep -iE '^montage' || true); do
-  [ "$t" = "${SRC_TAG:-}" ] && continue
-  echo "Suppression de l'ancienne vidéo déposée : $t"; gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
+# anciennes vidéos déposées (releases « montage… ») : seulement celles DÉJÀ montées avec succès (✅), jamais un brouillon,
+# une vidéo en cours de montage (⏳) ou pas encore lancée ; celles en échec (❌) restent 7 jours pour pouvoir relancer
+gh release list --repo "$REPO" --limit 100 --json tagName,name,isDraft,createdAt \
+  -q '.[] | select(.isDraft | not) | select(.tagName | test("^montage"; "i"))
+        | select((.name | startswith("✅")) or ((.name | startswith("❌")) and .createdAt < (now - 7*86400 | todate)))
+        | .tagName' 2>/dev/null | while read -r t; do
+  [ -n "$t" ] && [ "$t" != "${SRC_TAG:-}" ] || continue
+  echo "Suppression de l'ancienne vidéo déposée (déjà montée) : $t"; gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
 done
 
 for t in ${CONSUMED:-}; do  # releases de pièces jointes utilisées : gardées (pour relancer), marquées ✅
   bash scripts/release-status.sh "$t" ok "pièces jointes utilisées par le montage du $(date -u +%d/%m/%Y) — réutilisables en écrivant « $t » dans le champ pieces_jointes" || true
 done
 # releases de pièces jointes de plus de 7 jours : supprimées (le dépôt ne grossit pas)
-gh release list --repo "$REPO" --limit 100 --json tagName,createdAt -q '.[] | select(.createdAt < (now - 7*86400 | todate)) | .tagName' 2>/dev/null \
+gh release list --repo "$REPO" --limit 100 --json tagName,createdAt,isDraft \
+  -q '.[] | select(.isDraft | not) | select(.createdAt < (now - 7*86400 | todate)) | .tagName' 2>/dev/null \
   | grep -viE '^(montage|out-)' | while read -r t; do
     [ -n "$t" ] || continue
     echo "Ancienne release de pièces jointes supprimée : $t"; gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
@@ -41,7 +47,7 @@ if [ "$MB" -lt "${RELEASE_MAX_MB:-1900}" ]; then
     && DEST="release" || echo "::warning::Release impossible, essai Google Drive"
 fi
 if [ -z "$DEST" ] && [ -n "${RCLONE_CONF:-}" ]; then
-  command -v rclone >/dev/null || curl -sSf https://rclone.org/install.sh | sudo bash >/dev/null
+  for _i in 1 2 3; do command -v rclone >/dev/null && break; curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sleep 5; done
   mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
   REMOTE=$(grep -m1 -oE '^\[[^]]+\]' ~/.config/rclone/rclone.conf | tr -d '[]')
   DIR="${GDRIVE_FOLDER:-Montage-LV-final}/derniers"
