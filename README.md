@@ -101,7 +101,7 @@ La langue se règle désormais dans les consignes : `langue: ar` (sinon détect�
 
 ## 🎧 Mots-clés « écoutez… » (facultatif)
 
-*Run workflow* → menu **mots_cles** → `oui` (par défaut `non`) ; ou `mots_cles: oui` dans la description d'une release.
+Activé par défaut (*Run workflow*, release et chaîne depuis le fond vert). Pour le couper : menu **mots_cles** → `non`, ou `mots_cles: non` dans la description d'une release ou dans les consignes.
 Chaque fois que tu dis **exactement** : *écoutez ça · écoutez-moi ça · écoutez ce qu'il dit · écoutez ce qu'elle dit ·
 écoutez ce qu'ils disent*, un passage de ta (tes) vidéo(s) jointe(s) est inséré **juste après**, dans ta pause :
 - l'IA choisit le passage d'après ce que tu dis avant et après l'annonce (la personne, le propos, le fait), puis une

@@ -1,4 +1,4 @@
-"""Montage par mots-clés (option « mots_cles », désactivée par défaut).
+"""Montage par mots-clés (option « mots_cles », activée par défaut).
 
 Chaque fois que tu prononces EXACTEMENT l'une de ces phrases :
     écoutez ça · écoutez-moi ça · écoutez ce qu'il dit · écoutez ce qu'elle dit · écoutez ce qu'ils disent

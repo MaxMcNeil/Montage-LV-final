@@ -54,8 +54,8 @@ on:
       mots_cles:
         description: "Mots-clés : après « écoutez ça / écoutez-moi ça / écoutez ce qu'il (elle) dit / ce qu'ils disent », insérer le passage de la vidéo jointe qui correspond"
         type: choice
-        options: [non, oui]
-        default: non
+        options: [oui, non]
+        default: oui
       effets_sonores:
         description: "Petits souffles discrets aux transitions (aucune musique)"
         type: choice
