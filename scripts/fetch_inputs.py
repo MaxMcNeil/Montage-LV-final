@@ -24,13 +24,14 @@ from pathlib import Path
 VIDEO = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".3gp", ".mts")
 IMAGE = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif", ".avif")
 KEYS = ["couper_silences", "sous_titres", "recherche_presse", "max_inserts", "duree_max_insert", "images_web",
-        "effets_sonores", "fin", "langue", "finder", "ouverture_choc", "silences_longs"]
+        "effets_sonores", "fin", "langue", "finder", "ouverture_choc", "silences_longs", "mots_cles"]
 ALIASES = {"silences": "couper_silences", "coupe": "couper_silences", "sous-titres": "sous_titres", "subtitles": "sous_titres",
            "presse": "recherche_presse", "inserts": "max_inserts", "insertions": "max_inserts", "duree_insert": "duree_max_insert",
            "photos_web": "images_web", "effets": "effets_sonores", "sons": "effets_sonores", "carte_fin": "fin",
            "lang": "langue", "language": "langue", "lot": "finder", "vid_o_presse_finder": "finder",
            "resultats": "finder", "recherche": "finder",
-           "synchro": "finder", "silences_long": "silences_longs", "longs_silences": "silences_longs",
+           "synchro": "finder", "mots-cles": "mots_cles", "mot_cle": "mots_cles", "keyword": "mots_cles",
+           "keyword_montage": "mots_cles", "ecoutez": "mots_cles", "silences_long": "silences_longs", "longs_silences": "silences_longs",
            "pauses_longues": "silences_longs", "choc": "ouverture_choc", "accroche_choc": "ouverture_choc",
            "intro_choc": "ouverture_choc", "ouverture": "ouverture_choc", "synchro_finder": "finder", "vid-o-presse-finder": "finder"}
 REPO = os.environ.get("REPO", "")

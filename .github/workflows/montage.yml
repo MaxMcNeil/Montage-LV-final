@@ -49,6 +49,11 @@ on:
         type: choice
         options: [non, oui]
         default: non
+      mots_cles:
+        description: "Mots-clés : après « écoutez ça / écoutez-moi ça / écoutez ce qu'il (elle) dit / ce qu'ils disent », insérer le passage de la vidéo jointe qui correspond"
+        type: choice
+        options: [non, oui]
+        default: non
       effets_sonores:
         description: "Petits souffles discrets aux transitions (aucune musique)"
         type: choice
@@ -194,6 +199,7 @@ jobs:
           MONTAGE_RECHERCHE_PRESSE: ${{ inputs.recherche_presse }}
           MONTAGE_MAX_INSERTS: ${{ inputs.max_inserts }}
           MONTAGE_OUVERTURE_CHOC: ${{ inputs.ouverture_choc }}
+          MONTAGE_MOTS_CLES: ${{ inputs.mots_cles }}
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
           MONTAGE_FINDER: ${{ inputs.finder || github.event.client_payload.finder }}
         run: |

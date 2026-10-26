@@ -29,7 +29,8 @@ def _ass_events(path: Path) -> list[tuple[float, float, str]]:
     return out
 
 
-def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float | None = None) -> list[tuple[bool, str]]:
+def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float | None = None,
+          kw_info: dict | None = None) -> list[tuple[bool, str]]:
     res: list[tuple[bool, str]] = []
     # 1) durées son / image
     try:
@@ -83,6 +84,23 @@ def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float 
             left.append(f"{tc(a)} ({b - a:.1f} s)")
         res.append((not left, f"aucun silence de plus de {long_gap:.0f} s" if not left else
                     f"{len(left)} silence(s) long(s) gardé(s) (son non silencieux ?) : " + ", ".join(left[:6])))
+    # 3c) mots-clés « écoutez… » : un extrait juste après chaque annonce
+    if kw_info is not None:
+        from .timeline import out_time
+        its = kw_info["items"]
+        bad = []
+        for it in its:
+            if not it["inserted"]:
+                bad.append(f"« {it['phrase']} » à {tc(out_time(segs, it['t0']) or 0)} sans extrait")
+                continue
+            t_end = out_time(segs, it["t1"])
+            if t_end is None or not (t_end - 0.05 <= it["out"] <= t_end + 8.5):
+                bad.append(f"extrait de « {it['phrase']} » mal placé ({tc(it['out'])})")
+            ck = it.get("check") or {}
+            if ck and not ck.get("ok"):
+                bad.append(f"cohérence douteuse à {tc(it['out'])}")
+        res.append((not bad, f"{len(its)} « écoutez… » → {sum(1 for i in its if i['inserted'])} extrait(s) juste après"
+                    if not bad else "mots-clés : " + ", ".join(bad[:6])))
     # 4) textes d'habillage qui se chevauchent
     ev = [e for e in _ass_events(ass_path) if e[2] in ("Hook", "Chap", "Outro")]
     over = []

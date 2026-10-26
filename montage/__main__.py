@@ -48,7 +48,8 @@ def options(path: str | None) -> dict:
     # valeurs écrites librement dans la description de la release
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا"}
-    for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs"):
+    for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs",
+              "mots_cles"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
@@ -189,7 +190,11 @@ def main(argv=None) -> int:
         if asset:
             asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
             asset["source"] = f"pièce jointe « {x['name']} » ({tc(a0)} → {tc(b0)})"
-            inserts.append({"after": ins["after"], "asset": asset, "attachment": x["id"]})
+            inserts.append({"after": ins["after"], "asset": asset, "attachment": x["id"], "clip": (a0, b0)})
+    # 4a) mots-clés « écoutez ça… » : un passage de ta vidéo jointe juste après chaque annonce
+    kw_info = None
+    if opts.get("mots_cles") == "oui" and words:
+        kw_info = keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd)
     # 4b) résultats de Vid-o-presse-finder (dernier lot) placés selon ce que tu dis
     lot_info = None
     finder_used = False
@@ -310,6 +315,14 @@ def main(argv=None) -> int:
     keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
                             opener=opener, sil=sil_all)
+    if kw_info:  # mots-clés : extrait réellement placé ? (sinon la raison est notée)
+        placed = {s.insert.get("kw"): s for s in segs if s.kind == "insert" and s.insert.get("kw") is not None}
+        for it in kw_info["items"]:
+            if it["inserted"] and it["n"] not in placed:
+                it["inserted"] = False
+                it["why"] = "point d'insertion refusé au montage (aucun silence sûr)"
+            elif it["inserted"]:
+                it["out"] = placed[it["n"]].out0
     pause_stats = None
     if long_gap:
         try:
@@ -367,11 +380,84 @@ def main(argv=None) -> int:
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
     try:
         from .qc import check
-        qc = check(final, segs, words, ass_path, long_gap=long_gap)
+        qc = check(final, segs, words, ass_path, long_gap=long_gap, kw_info=kw_info)
     except Exception as e:  # noqa: BLE001
         qc = [(False, f"contrôle qualité impossible : {e}")]
-    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats)
+    write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats,
+                 kw_info)
     return 0
+
+
+def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd) -> dict:
+    from .keywords import choose, find_occurrences, pause_after
+    from .pauses import merge
+    occ = find_occurrences(words)
+    vids = [x for x in att if x["kind"] == "video"]
+    by_id = {x["id"]: x for x in att}
+    info = {"items": [], "videos": len(vids)}
+    log.info("Mots-clés : %d annonce(s) « écoutez… » trouvée(s), %d vidéo(s) jointe(s)", len(occ), len(vids))
+    if not occ:
+        return info
+    sil = merge(tr.get("silences") or [], quiet)
+    # 1) instant d'insertion de chaque annonce (vrai silence juste après)
+    real = []
+    for o in occ:
+        o["at"] = pause_after(words, sil, o["w1"], o.get("wait", 8.0))
+        nxt = " ".join(w["w"] for w in words[o["w1"] + 1:o["w1"] + 6])
+        if o["at"] is None and o["phrase"].endswith("ça"):
+            # « écoutez ça va changer… » : tu continues ta phrase, ce n'est pas une annonce d'extrait
+            info.setdefault("ignored", []).append({"t0": o["t0"], "text": f"{o['phrase']} {nxt}"})
+            continue
+        real.append(o)
+    occ = real
+    # 2) passage choisi (IA + vérification) uniquement pour les vraies annonces
+    picks = {p["n"]: p for p in choose(ai, [o for o in occ if o["at"] is not None], words, vids, lang, maxd)} \
+        if vids else {}
+    idx = [n for n, o in enumerate(occ) if o["at"] is not None]
+    picks = {idx[k]: p for k, p in picks.items() if k < len(idx)}
+    for n, o in enumerate(occ):
+        item = {"n": n, "phrase": o["phrase"], "t0": o["t0"], "t1": o["t1"], "inserted": False}
+        info["items"].append(item)
+        t = o["at"]
+        if not vids:
+            item["why"] = "aucune vidéo jointe (release ou Drive)"
+            continue
+        if t is None:
+            item["why"] = (f"tu enchaînes sans pause pendant {o.get('wait', 8.0):.0f} s après la phrase : pas d'insertion "
+                           f"(pour ne pas te couper)")
+            continue
+        p = picks.get(n)
+        if not p:
+            item["why"] = "aucun passage trouvé dans les vidéos jointes"
+            continue
+        x = by_id[p["video"]]
+        asset = prepare_insert(Path(x["path"]), p["a"], p["b"], orient, work, f"insert_kw{n}", lang, ai,
+                               x.get("sentences") or None, x.get("lang"))
+        if not asset:
+            item["why"] = "passage illisible"
+            continue
+        asset["credit"] = {"label": x.get("label") or _pretty(x["name"])}
+        asset["source"] = f"MOT-CLÉ « {o['phrase']} » — pièce jointe « {x['name']} » ({tc(p['a'])} → {tc(p['b'])})"
+        s_i = next((s["i"] for s in sents if s["w0"] <= o["w1"] <= s["w1"]), 0)
+        inserts.append({"after": s_i, "asset": asset, "attachment": x["id"], "clip": (p["a"], p["b"]), "forced_t": t,
+                        "kw": n})
+        item.update(inserted=True, at=t, video=x["name"], a=p["a"], b=p["b"], why=p.get("why", ""),
+                    check=p.get("check"), confidence=p.get("confidence"))
+    # les autres insertions de tes vidéos qui reprendraient le même passage sont retirées (pas de doublon)
+    kw = [i for i in inserts if i.get("kw") is not None]
+    keep = []
+    for i in inserts:
+        if i.get("kw") is None and i.get("clip") and any(
+                i.get("attachment") == k["attachment"] and
+                min(i["clip"][1], k["clip"][1]) - max(i["clip"][0], k["clip"][0]) >
+                0.3 * min(i["clip"][1] - i["clip"][0], k["clip"][1] - k["clip"][0]) for k in kw):
+            log.info("insertion « %s » retirée : même passage qu'un mot-clé", i["asset"].get("source"))
+            continue
+        keep.append(i)
+    inserts[:] = keep
+    log.info("Mots-clés : %d extrait(s) prêt(s) sur %d annonce(s) (%d « écoutez ça… » ignoré(s) : phrase qui continue)",
+             len(kw), len(occ), len(info.get("ignored") or []))
+    return info
 
 
 OPENER_PROMPT = """Une vidéo face caméra (langue « {lang} ») doit commencer par une OUVERTURE CHOC : le passage le plus
@@ -434,7 +520,7 @@ def _fmt_date(d: str) -> str:
 
 
 def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None,
-                 pause_stats=None):
+                 pause_stats=None, kw_info=None):
     L = []
     L.append(f"# Montage — {plan.get('title') or 'vidéo'}\n")
     if qc:
@@ -460,6 +546,23 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     if plan.get("hook"):
         h0 = segs[0].dur if segs and segs[0].kind == "insert" and segs[0].insert.get("opener") else 0.0
         L.append(f"- Accroche ({tc(h0)} → {tc(h0 + 3.5)}) : « {plan['hook']} »")
+    if kw_info is not None:
+        its = kw_info["items"]
+        L.append(f"- Mots-clés « écoutez… » : {len(its)} annonce(s) dans ta vidéo → "
+                 f"{sum(1 for i in its if i['inserted'])} extrait(s) inséré(s) juste après")
+        for i in its:
+            when = tc(out_time(segs, i["t0"]) or 0)
+            if i["inserted"]:
+                ck = i.get("check") or {}
+                verif = (f" — vérifié ✅ ({ck.get('score')}/10)" if ck.get("ok") else
+                         (f" — ⚠ cohérence douteuse : {ck.get('reason')}" if ck else " — non vérifié (IA indisponible)"))
+                L.append(f"  - {when} « {i['phrase']} » → {i['video']} {tc(i['a'])} → {tc(i['b'])} (à {tc(i['out'])}) : "
+                         f"{i.get('why') or ''}{verif}")
+            else:
+                L.append(f"  - {when} « {i['phrase']} » → ⚠ non inséré : {i['why']}")
+        for g in kw_info.get("ignored") or []:
+            L.append(f"  - {tc(out_time(segs, g['t0']) or 0)} « {g['text']}… » → ignoré : tu continues ta phrase, ce "
+                     f"n'est pas une annonce d'extrait")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         if lot_info.get("origine"):

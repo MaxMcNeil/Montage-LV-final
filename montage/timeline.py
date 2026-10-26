@@ -133,7 +133,16 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
     speech = sum(b - a for a, b in keep)
     # 1) points d'insertion : juste après la fin d'une phrase, dans le silence
     pts = []
-    for ins in sorted(inserts, key=lambda i: i["after"]):
+    # extraits « mot-clé » (écoutez ça…) : instant déjà fixé (silence juste après ta phrase), prioritaires
+    for ins in sorted([i for i in inserts if i.get("forced_t") is not None], key=lambda i: i["forced_t"]):
+        t = _snap(ins["forced_t"], keep)
+        if t is None or any(abs(t - p["t"]) < 1.0 for p in pts) \
+                or any(w["t0"] - 0.05 < t < w["t1"] + 0.05 for w in words):
+            log.warning("mot-clé : point d'insertion %.2f s refusé (sur un mot ou déjà pris)", ins["forced_t"])
+            ins["refused"] = True
+            continue
+        pts.append({"t": t, **ins})
+    for ins in sorted([i for i in inserts if i.get("forced_t") is None], key=lambda i: i["after"]):
         t = find_pause(words, sents, sil or [], ins["after"])
         if t is None:
             log.warning("pas de vrai silence après la phrase %d : extrait non inséré (pour ne pas te couper)", ins["after"])

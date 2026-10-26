@@ -93,6 +93,19 @@ apparais et l'accroche s'affiche. L'IA choisit le passage en lisant la transcrip
 (`fichier.mp4 = 1:20-1:45`) sert de repli sans IA.
 La langue se règle désormais dans les consignes : `langue: ar` (sinon détectée automatiquement).
 
+## 🎧 Mots-clés « écoutez… » (facultatif)
+
+*Run workflow* → menu **mots_cles** → `oui` (par défaut `non`) ; ou `mots_cles: oui` dans la description d'une release.
+Chaque fois que tu dis **exactement** : *écoutez ça · écoutez-moi ça · écoutez ce qu'il dit · écoutez ce qu'elle dit ·
+écoutez ce qu'ils disent*, un passage de ta (tes) vidéo(s) jointe(s) est inséré **juste après**, dans ta pause :
+- l'IA choisit le passage d'après ce que tu dis avant et après l'annonce (la personne, le propos, le fait), puis une
+  2e lecture indépendante vérifie la cohérence et fait rechoisir si besoin ; phrases complètes, pas deux fois le même ;
+- l'extrait n'est jamais posé sur ta voix : il faut une vraie pause juste après la phrase (pour « écoutez ça », dans
+  la seconde qui suit — « écoutez ça va changer… » n'est pas une annonce et est ignoré) ;
+- une formule voisine (« écoutez bien ça », « écoute ça », « écoutez ceci ») ne déclenche rien ;
+- PLAN.md liste chaque annonce : passage inséré et vérification ✅, ou ⚠ la raison ; le contrôle qualité le vérifie.
+Passage imposé pour une vidéo (`discours.mp4 = 1:20-1:45`) : seul ce passage de cette vidéo est utilisé.
+
 ## 🤫 Silences de plus de 2 s (automatique)
 
 Tout silence de plus de 2 s est raccourci à une respiration naturelle (~0,6 s), en vertical comme en horizontal, dans
