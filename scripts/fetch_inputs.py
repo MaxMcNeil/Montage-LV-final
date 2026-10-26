@@ -161,7 +161,7 @@ def waiting_releases(exclude: set) -> list[str]:
     import datetime as dt
     try:
         j = json.loads(sh(["gh", "release", "list", "--repo", REPO, "--limit", "40", "--json",
-                           "tagName,createdAt,isDraft,name"]).stdout)
+                           "tagName,createdAt,publishedAt,isDraft,name"]).stdout)
     except Exception:  # noqa: BLE001
         return []
     now = dt.datetime.now(dt.timezone.utc)
@@ -172,7 +172,9 @@ def waiting_releases(exclude: set) -> list[str]:
                 or (r.get("name") or "").startswith("✅"):  # déjà utilisée par un montage : seulement si tu la cites
             continue
         try:
-            age = now - dt.datetime.fromisoformat(r["createdAt"].replace("Z", "+00:00"))
+            # date de PUBLICATION (un brouillon publié plus tard compte à partir de sa publication)
+            when = r.get("publishedAt") or r["createdAt"]
+            age = now - dt.datetime.fromisoformat(when.replace("Z", "+00:00"))
         except ValueError:
             continue
         if age > dt.timedelta(days=3):

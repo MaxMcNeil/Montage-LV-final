@@ -32,8 +32,8 @@ for t in ${CONSUMED:-}; do  # releases de pièces jointes utilisées : gardées 
   bash scripts/release-status.sh "$t" ok "pièces jointes utilisées par le montage du $(date -u +%d/%m/%Y) — réutilisables en écrivant « $t » dans le champ pieces_jointes" || true
 done
 # releases de pièces jointes de plus de 7 jours : supprimées (le dépôt ne grossit pas)
-gh release list --repo "$REPO" --limit 100 --json tagName,createdAt,isDraft \
-  -q '.[] | select(.isDraft | not) | select(.createdAt < (now - 7*86400 | todate)) | .tagName' 2>/dev/null \
+gh release list --repo "$REPO" --limit 100 --json tagName,createdAt,publishedAt,isDraft \
+  -q '.[] | select(.isDraft | not) | select((.publishedAt // .createdAt) < (now - 7*86400 | todate)) | .tagName' 2>/dev/null \
   | grep -viE '^(montage|out-)' | while read -r t; do
     [ -n "$t" ] || continue
     echo "Ancienne release de pièces jointes supprimée : $t"; gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
