@@ -78,6 +78,12 @@ jobs:
   montage:
     if: >-
       github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'out-')
+    outputs:
+      chaine_id: ${{ github.event.client_payload.chaine_id }}
+      video_url: ${{ steps.pubc.outputs.video_url }}
+      video_id: ${{ steps.pubc.outputs.video_id }}
+      video_nom: ${{ steps.pubc.outputs.video_nom }}
+      joints: ${{ steps.pubc.outputs.joints }}
     runs-on: ubuntu-24.04
     timeout-minutes: 340
     env:
@@ -223,24 +229,12 @@ jobs:
           CONSUMED: ${{ steps.fetch.outputs.consumed }}
         run: bash scripts/publish.sh
 
-      - name: Chaîne — jeton GitHub App
-        id: chaine_tok
-        if: env.CHAINE_ID != '' && vars.CHAINE_APP_ID != ''
-        continue-on-error: true
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.CHAINE_APP_ID }}
-          private-key: ${{ secrets.CHAINE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: Push-overlay
-
-      - name: Chaîne — publier (out-chaine, 2 jours) et lancer les Shorts
+      - name: Chaîne — publier le montage (release out-chaine, 2 jours)
         id: pubc
         if: env.CHAINE_ID != ''
         env:
           BASE: ${{ steps.fetch.outputs.base }}
-          CHAINE_GH_TOKEN: ${{ steps.chaine_tok.outputs.token || secrets.CHAINE_TOKEN }}
-        run: bash scripts/chaine_suite.sh
+        run: bash scripts/chaine_suite.sh publier
 
       - name: Artifact (si ni release ni Drive)
         # chaîne : si la publication échoue, le montage rendu n'est jamais perdu (Artifacts du run, 14 jours)
@@ -259,3 +253,41 @@ jobs:
           SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
         run: |
           bash scripts/release-status.sh "$SRC_TAG" fail "voir l'erreur : [journal du run](https://github.com/$REPO/actions/runs/${{ github.run_id }})"
+
+  # 🔗 CHAÎNE : job séparé et léger. S'il échoue (jeton, réseau…), « Re-run failed jobs » ne refait QUE ce lancement,
+  # pas le montage. Le dossier montage-joints n'est vidé qu'ici, une fois les Shorts lancés.
+  chaine-shorts:
+    name: 🔗 Chaîne — lancer les Shorts
+    needs: montage
+    if: github.event_name == 'repository_dispatch' && needs.montage.outputs.chaine_id != ''
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+
+      - name: Jeton GitHub App
+        id: chaine_tok
+        if: vars.CHAINE_APP_ID != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.CHAINE_APP_ID }}
+          private-key: ${{ secrets.CHAINE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: Push-overlay
+
+      - name: Lancer Video to Shorts (Push-overlay) puis vider montage-joints
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          CHAINE_GH_TOKEN: ${{ steps.chaine_tok.outputs.token || secrets.CHAINE_TOKEN }}
+          CHAINE_ID: ${{ needs.montage.outputs.chaine_id }}
+          CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
+          VIDEO_URL: ${{ needs.montage.outputs.video_url }}
+          VIDEO_ID: ${{ needs.montage.outputs.video_id }}
+          VIDEO_NOM: ${{ needs.montage.outputs.video_nom }}
+          JOINTS_B64: ${{ needs.montage.outputs.joints }}
+        run: bash scripts/chaine_suite.sh lancer
