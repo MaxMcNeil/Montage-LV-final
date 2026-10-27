@@ -175,15 +175,16 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         f, lines, size = fit(d, data.get("text", ""), "serif", pw - 2 * m, int(ph * 0.48), 190, 60, 3, 1.08)
         y_end = draw_lines(d, lines, f, size, (P + m, P + int(ph * 0.16), pw - 2 * m, int(ph * 0.48)), C.GOLD,
                            align="center", spacing=1.08, valign="middle")
+        y_end += int(size * 0.22)   # le filet passe SOUS les chiffres (jamais à travers)
         d.rectangle((P + pw / 2 - 60, y_end + 26, P + pw / 2 + 60, y_end + 31), fill=C.GOLD)
         if label:
-            f2, l2, s2 = fit(d, label, "sans", pw - 2 * m, int(ph * 0.2), 48, 30, 2)
+            f2, l2, s2 = fit(d, label, "sans", pw - 2 * m, int(ph * 0.2), 52, 36, 2)
             yy = draw_lines(d, l2, f2, s2, (P + m, y_end + 60, pw - 2 * m, int(ph * 0.2)), C.CREAM, align="center")
         else:
             yy = y_end + 60
         if sub:
-            f3, l3, s3 = fit(d, sub, "sans", pw - 2 * m, int(ph * 0.12), 32, 22, 2)
-            draw_lines(d, l3, f3, s3, (P + m, yy + 10, pw - 2 * m, int(ph * 0.12)), (190, 196, 210), align="center")
+            f3, l3, s3 = fit(d, sub, "sans", pw - 2 * m, int(ph * 0.14), 38, 30, 2)
+            draw_lines(d, l3, f3, s3, (P + m, yy + 10, pw - 2 * m, int(ph * 0.12)), (222, 226, 236), align="center")
     elif kind == "quote":
         im, d = _base(pw, ph, C.PAPER)
         m = 70
@@ -191,13 +192,13 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         fq = _font("serif", 220, True, "«")
         rtl = has_rtl(text)
         d.text((P + (pw - m - 110 if rtl else m - 20), P + 10), "”" if rtl else "“", font=fq, fill=C.GOLD)
-        f, lines, size = fit(d, text, "serif", pw - 2 * m, int(ph * 0.62), 84, 40, 6, 1.2)
+        f, lines, size = fit(d, text, "serif", pw - 2 * m, int(ph * 0.62), 84, 44, 6, 1.2)
         draw_lines(d, lines, f, size, (P + m, P + int(ph * 0.2), pw - 2 * m, int(ph * 0.62)), C.INK, align="left",
                    spacing=1.2, valign="middle")
         d.rectangle((P + m, P + ph - 92, P + m + 90, P + ph - 87), fill=C.GOLD)
         if label:
-            f2 = _font("sans", 30, True, label)
-            draw_lines(d, [label], f2, 30, (P + m, P + ph - 74, pw - 2 * m, 40), C.GREY)
+            f2, l2, s2 = fit(d, label, "sans", pw - 2 * m, 46, 36, 28, 1)
+            draw_lines(d, l2, f2, s2, (P + m, P + ph - 78, pw - 2 * m, 46), C.NAVY)
     elif kind == "statement":  # déclaration (extrait vidéo non téléchargeable) : vignette + citation + qui + où
         has_img = img is not None
         hole = (22, 22, pw - 44, int(ph * 0.42)) if has_img else None
@@ -209,17 +210,17 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         fq = _font("serif", 120, True, "«")
         d.text((P + (pw - m - 70 if rtl else m - 8), P + top - 34), "”" if rtl else "“", font=fq, fill=C.GOLD)
         avail = ph - top - 150
-        f, lines, size = fit(d, quote, "serif", pw - 2 * m - 30, avail, 52, 26, 7, 1.18)
+        f, lines, size = fit(d, quote, "serif", pw - 2 * m - 30, avail, 56, 34, 7, 1.18)
         draw_lines(d, lines, f, size, (P + m + (0 if rtl else 30), P + top + 34, pw - 2 * m - 30, avail), C.INK, spacing=1.18)
         y = P + ph - 108
         if label:
             d.rectangle((P + pw - m - 8 if has_rtl(label) else P + m, y + 6, P + pw - m if has_rtl(label) else P + m + 8,
                          y + 50), fill=C.GOLD)
-            f2, l2, s2 = fit(d, label, "sans", pw - 2 * m - 26, 50, 36, 22, 1)
+            f2, l2, s2 = fit(d, label, "sans", pw - 2 * m - 26, 50, 40, 30, 1)
             draw_lines(d, l2, f2, s2, (P + m + (0 if has_rtl(label) else 26), y + 4, pw - 2 * m - 26, 50), C.NAVY)
         if sub:
-            f3 = _font("sans", 25, False, sub)
-            draw_lines(d, [sub[:70]], f3, 25, (P + m + 26, y + 60, pw - 2 * m - 26, 34), C.GREY)
+            f3, l3, s3 = fit(d, sub, "sans", pw - 2 * m - 26, 40, 32, 26, 1)
+            draw_lines(d, l3, f3, s3, (P + m + 26, y + 58, pw - 2 * m - 26, 40), (70, 70, 78))
         if has_img:
             photo = _cover(img, hole[2] * 2, hole[3] * 2, 0.4)
     elif kind == "article":
@@ -229,26 +230,26 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         im, d = _base(pw, ph, C.PAPER, hole)
         m = 36
         src = (data.get("source") or "").upper()
-        fs = _font("sans", 30, True, src)
-        draw_lines(d, [src[:40]], fs, 30, (P + m, P + 30, pw * 0.6, 40), C.RED)
+        fs = _font("sans", 36, True, src)
+        draw_lines(d, [src[:32]], fs, 36, (P + m, P + 26, pw * 0.6, 46), C.RED)
         if data.get("date"):
-            fd = _font("sans", 26, False, data["date"])
-            draw_lines(d, [data["date"]], fd, 26, (P + pw * 0.55, P + 33, pw * 0.45 - m, 40), C.GREY, align="right")
+            fd = _font("sans", 32, True, data["date"])
+            draw_lines(d, [data["date"]], fd, 32, (P + pw * 0.55, P + 30, pw * 0.45 - m, 44), (70, 70, 78), align="right")
         top = hdr + (hole[3] + 26 if hole else 10)
         d.rectangle((P + m, P + top - 12, P + pw - m, P + top - 10), fill=(200, 192, 178))
         avail = ph - top - 80
-        f, lines, size = fit(d, data.get("headline", ""), "serif", pw - 2 * m, avail, 68 if not has_img else 54, 28, 6, 1.16)
+        f, lines, size = fit(d, data.get("headline", ""), "serif", pw - 2 * m, avail, 70 if not has_img else 58, 38, 6, 1.16)
         draw_lines(d, lines, f, size, (P + m, P + top + 6, pw - 2 * m, avail), C.INK, spacing=1.16)
-        fdom = _font("sans", 24, True, "x")
+        fdom = _font("sans", 30, True, "x")
         d.rectangle((P + m, P + ph - 58, P + m + 70, P + ph - 54), fill=C.GOLD)
-        draw_lines(d, [(data.get("domain") or "")[:60]], fdom, 24, (P + m + 86, P + ph - 70, pw - 2 * m - 86, 32), C.GREY)
+        draw_lines(d, [(data.get("domain") or "")[:44]], fdom, 30, (P + m + 86, P + ph - 74, pw - 2 * m - 86, 38), (70, 70, 78))
         if has_img:
             photo = _cover(img, hole[2] * 2, hole[3] * 2, 0.3)
     else:  # photo : personne, lieu, chose, événement, image jointe
         band = 0
         if label or sub:
             band = 150 if sub else 112
-        cband = 34 if credit else 0
+        cband = 40 if credit else 0
         hole = (20, 20, pw - 40, ph - 40 - band - cband)
         im, d = _base(pw, ph, C.PAPER, hole)
         m = 34
@@ -256,15 +257,15 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         if label:
             rtl = has_rtl(label)
             d.rectangle((P + pw - m - 8 if rtl else P + m, y + 8, P + pw - m if rtl else P + m + 8, y + 58), fill=C.GOLD)
-            f, l1, s1 = fit(d, label, "serif", pw - 2 * m - 30, 64, 48, 30, 1)
+            f, l1, s1 = fit(d, label, "serif", pw - 2 * m - 30, 64, 50, 38, 1)
             draw_lines(d, l1, f, s1, (P + m + (0 if rtl else 26), y, pw - 2 * m - 26, 64), C.INK)
             y += 66
         if sub:
-            f, l2, s2 = fit(d, sub, "sans", pw - 2 * m - 26, 42, 32, 22, 1)
-            draw_lines(d, l2, f, s2, (P + m + (0 if has_rtl(sub) else 26), y, pw - 2 * m - 26, 42), C.GREY)
+            f, l2, s2 = fit(d, sub, "sans", pw - 2 * m - 26, 44, 34, 28, 1)
+            draw_lines(d, l2, f, s2, (P + m + (0 if has_rtl(sub) else 26), y, pw - 2 * m - 26, 44), (70, 70, 78))
         if credit:
-            fc = _font("sans", 19, False, credit)
-            draw_lines(d, [credit[:110]], fc, 19, (P + m, P + ph - 36, pw - 2 * m, 26), (140, 140, 146), align="right")
+            fc = _font("sans", 24, True, credit)
+            draw_lines(d, [credit[:70]], fc, 24, (P + m, P + ph - 38, pw - 2 * m, 30), (88, 88, 96), align="right")
         if img is not None:
             hw, hh = hole[2] * 2, hole[3] * 2
             portrait = kind == "person"

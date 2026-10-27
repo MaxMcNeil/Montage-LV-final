@@ -365,11 +365,50 @@ def sfx_whoosh(seed: int = 0) -> np.ndarray:
     return pan * 0.075
 
 
-def sfx_tick() -> np.ndarray:
-    n = int(0.35 * SAMPLE_RATE)
-    t = np.arange(n, dtype=np.float32) / SAMPLE_RATE
-    s = (np.sin(2 * np.pi * 660 * t) * 0.6 + np.sin(2 * np.pi * 990 * t) * 0.3) * np.exp(-t * 14)
-    return np.stack([s, s], axis=1).astype(np.float32) * 0.07
+def sfx_chapter() -> np.ndarray:
+    """Petit générique de chapitre façon journal télévisé, entièrement synthétisé (aucun droit d'auteur) :
+    souffle montant 0,3 s → impact grave feutré + deux notes de cloche (mi puis si-mi à l'octave), qui s'éteignent
+    en 1,5 s. Volume discret : présent sans couvrir ta voix. L'impact tombe 0,3 s après le début du son."""
+    sr = SAMPLE_RATE
+    n = int(1.9 * sr)
+    t = np.arange(n, dtype=np.float32) / sr
+    out = np.zeros(n, dtype=np.float32)
+    # 1) souffle montant (bruit filtré passe-bande qui monte, 0 → 0,3 s)
+    rng = np.random.default_rng(7)
+    m = int(0.32 * sr)
+    noise = rng.standard_normal(m).astype(np.float32)
+    spec = np.fft.rfft(noise)
+    f = np.fft.rfftfreq(m, 1 / sr)
+    spec *= np.exp(-((np.log(f + 1) - np.log(2400)) ** 2) / 0.6)
+    r = np.fft.irfft(spec, m).astype(np.float32)
+    r /= np.abs(r).max() + 1e-9
+    out[:m] += r * np.linspace(0, 1, m, dtype=np.float32) ** 2.2 * 0.35
+    hit = int(0.30 * sr)
+    th = t[:n - hit]
+    # 2) impact grave feutré (sinus qui descend de 70 à 48 Hz)
+    fr = 48 + 22 * np.exp(-th * 9)
+    ph = 2 * np.pi * np.cumsum(fr) / sr
+    out[hit:] += np.sin(ph) * np.exp(-th * 7) * 0.55 * np.minimum(1, th / 0.004)
+    # 3) cloches (partiels inharmoniques d'une cloche tubulaire, attaque douce de 3 ms)
+
+    def bell(f0, start, amp, decay=2.6):
+        k0 = hit + int(start * sr)
+        tt = t[:n - k0]
+        env = np.exp(-tt * decay) * np.minimum(1, tt / 0.003)
+        w = (np.sin(2 * np.pi * f0 * tt) + 0.42 * np.sin(2 * np.pi * f0 * 2.76 * tt) * np.exp(-tt * 3)
+             + 0.18 * np.sin(2 * np.pi * f0 * 5.40 * tt) * np.exp(-tt * 6))
+        out[k0:] += (w * env * amp).astype(np.float32)
+    bell(659.3, 0.0, 0.42)      # mi
+    bell(987.8, 0.0, 0.22)      # si (quinte)
+    bell(1318.5, 0.13, 0.36)    # mi aigu : petite montée, signature « info »
+    out[-int(0.08 * sr):] *= np.linspace(1, 0, int(0.08 * sr), dtype=np.float32)
+    out /= np.abs(out).max() + 1e-9
+    st = np.stack([out * 0.96, out], axis=1)
+    return (st * 0.16).astype(np.float32)
+
+
+def sfx_tick() -> np.ndarray:   # (gardé pour compatibilité)
+    return sfx_chapter()
 
 
 def build_audio(segs, main_wav: Path, out: Path, sfx: bool, chapter_times: list) -> Path:
@@ -413,9 +452,9 @@ def build_audio(segs, main_wav: Path, out: Path, sfx: bool, chapter_times: list)
             p = int(max(0.0, t) * SAMPLE_RATE)
             e = min(total, p + len(w))
             buf[p:e] += w[:e - p]
-        tk = sfx_tick()
+        tk = sfx_chapter()
         for t in chapter_times:
-            p = int(max(0.0, t) * SAMPLE_RATE)
+            p = int(max(0.0, t - 0.25) * SAMPLE_RATE)   # l'impact tombe pile quand le bandeau arrive
             e = min(total, p + len(tk))
             buf[p:e] += tk[:e - p]
     peak = float(np.abs(buf).max()) if len(buf) else 0

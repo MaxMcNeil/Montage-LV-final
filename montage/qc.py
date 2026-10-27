@@ -30,7 +30,7 @@ def _ass_events(path: Path) -> list[tuple[float, float, str]]:
 
 
 def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float | None = None,
-          kw_info: dict | None = None) -> list[tuple[bool, str]]:
+          kw_info: dict | None = None, subs_off: bool = False) -> list[tuple[bool, str]]:
     res: list[tuple[bool, str]] = []
     # 1) durées son / image
     try:
@@ -129,6 +129,11 @@ def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float 
                             f"{len(blancs)} blanc(s) de plus de {long_gap:.0f} s à l'écoute : " + ", ".join(blancs[:8])))
         except Exception as e:  # noqa: BLE001
             log.warning("mesure des blancs impossible : %s", e)
+    # 3e) sous-titres désactivés : vraiment AUCUN sous-titre (ni de ta voix, ni des extraits)
+    if subs_off:
+        n_sub = sum(1 for e in _ass_events(ass_path) if e[2] in ("Cap", "Sub"))
+        res.append((n_sub == 0, "sous-titres désactivés : aucun sous-titre à l'écran" if n_sub == 0 else
+                    f"sous-titres désactivés mais {n_sub} sous-titre(s) présent(s)"))
     # 4) textes d'habillage qui se chevauchent
     ev = [e for e in _ass_events(ass_path) if e[2] in ("Hook", "Chap", "Outro")]
     over = []

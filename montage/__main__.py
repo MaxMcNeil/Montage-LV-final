@@ -47,7 +47,7 @@ def options(path: str | None) -> dict:
             o[k] = v
     # valeurs écrites librement dans la description de la release
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
-    no = {"non", "no", "false", "0", "off", "لا"}
+    no = {"non", "no", "false", "0", "off", "لا", "aucun", "aucuns", "sans", "désactivé", "desactive", "désactivés", "nessuno"}
     for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs",
               "mots_cles", "rythme"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
@@ -399,24 +399,29 @@ def main(argv=None) -> int:
     log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
     sub = ASS(orient, lang, face)
     h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
-    hook_end = h0 + 3.35 if plan.get("hook") else 0.0
+    hook_end = h0 + 4.2 if plan.get("hook") else 0.0
     if plan.get("hook"):
         sub.hook(plan["hook"], h0, hook_end)
     chap_times = []
     for i, c in enumerate(plan["chapters"]):
         t = out_time(segs, sents[c["s"]]["t0"]) if c["s"] < len(sents) else None
         # le 1er chapitre est couvert par l'accroche ; jamais deux textes en même temps
-        if t is None or i == 0 or c["s"] <= (sents[0]["i"] if sents else 0) or t < h0 + 1.0 or t > total - 8:
+        if t is None or i == 0 or c["s"] <= (sents[0]["i"] if sents else 0) or t < h0 + 1.0 or t > total - 12:
             continue
         if t < hook_end + 0.4:
             t = hook_end + 0.4
-        if chap_times and t < chap_times[-1] + 4.5:
+        if chap_times and t < chap_times[-1] + 6.5:
             continue
-        sub.chapter(t, i + 1, c["title"])
+        # la carte reste 5 s, mais s'efface avant l'extrait suivant (jamais deux bandeaux l'un sur l'autre)
+        nxt = min([x.out0 for x in segs if x.kind == "insert" and x.out0 > t] + [t + 99])
+        dur = min(5.0, nxt - t - 0.25)
+        if dur < 2.6:
+            continue
+        sub.chapter(t, i + 1, c["title"], dur=dur)
         chap_times.append(t)
     for s in segs:
         if s.kind == "insert":
-            sub.insert(s.out0, s.dur, s.insert["asset"])
+            sub.insert(s.out0, s.dur, s.insert["asset"], subtitles=opts["sous_titres"] != "non")
     if opts["sous_titres"] != "non":
         emph = {norm(w) for ws in plan.get("emphasis", {}).values() for w in ws for w in [w] if norm(w)}
         emph = {x for w in emph for x in w.split() if len(x) > 2}
@@ -438,7 +443,8 @@ def main(argv=None) -> int:
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
     try:
         from .qc import check
-        qc = check(final, segs, words, ass_path, long_gap=long_gap, kw_info=kw_info)
+        qc = check(final, segs, words, ass_path, long_gap=long_gap, kw_info=kw_info,
+                   subs_off=opts["sous_titres"] == "non")
     except Exception as e:  # noqa: BLE001
         qc = [(False, f"contrôle qualité impossible : {e}")]
     write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats,
