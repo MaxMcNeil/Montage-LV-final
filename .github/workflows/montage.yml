@@ -271,9 +271,9 @@ jobs:
         id: chaine_tok
         if: vars.CHAINE_APP_ID != ''
         continue-on-error: true
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
-          app-id: ${{ vars.CHAINE_APP_ID }}
+          client-id: ${{ vars.CHAINE_CLIENT_ID || 'Iv23lis4ynP55Bsr8WhV' }}
           private-key: ${{ secrets.CHAINE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: Push-overlay

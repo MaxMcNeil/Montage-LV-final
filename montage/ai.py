@@ -124,7 +124,9 @@ class AI:
         self.router = None
         self.mini = []
         self.calls = 0
-        self.errors: list[str] = []
+        self.errors: list[str] = []     # échecs réels (aucune source n'a répondu)
+        self.recovered = 0              # incidents rattrapés par une autre source (sans effet sur le montage)
+        self.waited = 0
         try:
             from quote_finder.llm import LLMRouter  # moteur de Vid-o-presse-finder (cloné par le workflow)
             r = LLMRouter.from_env()
@@ -144,22 +146,41 @@ class AI:
     def ok(self) -> bool:
         return bool(self.router or self.mini)
 
-    def json(self, prompt: str, image: tuple | None = None, media_key: str = ""):
-        """Réponse JSON de l'IA, ou None si toute l'IA est indisponible (le montage continue sans)."""
-        self.calls += 1
+    def _once(self, prompt, image, media_key, errs):
         if self.router:
             try:
                 return self.router.generate_json(prompt, inline_media=image, media_key=media_key)
             except Exception as e:  # noqa: BLE001
-                self.errors.append(str(e)[:160])
+                errs.append(str(e)[:160])
                 log.warning("IA (moteur principal) : %s", str(e)[:160])
         for c in self.mini:
+            if isinstance(c, _MiniGroq) and len(prompt) > 18_000:
+                continue   # offre gratuite Groq ≈ 8 000 jetons par requête : une requête aussi longue serait refusée (413)
             try:
                 return c.json(prompt, image=image)
             except Exception as e:  # noqa: BLE001
-                self.errors.append(str(e)[:160])
+                errs.append(str(e)[:160])
                 log.warning("IA (%s) : %s", type(c).__name__, str(e)[:160])
         return None
+
+    def json(self, prompt: str, image: tuple | None = None, media_key: str = ""):
+        """Réponse JSON de l'IA, ou None si toute l'IA est indisponible (le montage continue sans).
+        Un moteur qui échoue alors qu'un autre répond = incident RATTRAPÉ (compté, pas affiché comme une erreur).
+        Tous en échec à cause d'une limite de débit (429 / quota) : une 2e tentative après une pause."""
+        self.calls += 1
+        errs: list[str] = []
+        r = self._once(prompt, image, media_key, errs)
+        if r is None and errs and any(re.search(r"429|quota|rate|limit|RESOURCE_EXHAUSTED|timeout|tempor|503|502|500", e, re.I)
+                                      for e in errs) and self.waited < 240:
+            log.info("IA : toutes les sources momentanément saturées → nouvel essai dans 45 s")
+            time.sleep(45)
+            self.waited += 45
+            r = self._once(prompt, image, media_key, errs)
+        if r is None:
+            self.errors.extend(errs)
+        elif errs:
+            self.recovered += len(errs)
+        return r
 
     def save_quota(self):
         try:

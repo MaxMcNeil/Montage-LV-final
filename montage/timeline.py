@@ -42,6 +42,16 @@ def keep_ranges(words: list, sil: list, duration: float, mode: str, skip_start: 
         if sil:  # le silence doit être réel (sinon : mot non reconnu, on ne coupe pas)
             cover = sum(max(0.0, min(g1, b) - max(g0, a)) for a, b in sil)
             if cover < 0.8 * (g1 - g0):
+                # pause de plus de 2 s avec un petit bruit (respiration, chaise…) : on ne touche JAMAIS au bruit (ce
+                # pourrait être un mot non reconnu), mais on retire les parties vraiment silencieuses avant et après.
+                if gap >= 2.0:
+                    parts = sorted((max(g0, a), min(g1, b)) for a, b in sil if min(g1, b) - max(g0, a) >= 0.4)
+                    if parts and parts[0][0] <= g0 + 0.05:                     # silence au début de la pause
+                        cuts.append((g0, parts[0][1] - 0.12))
+                    if parts and parts[-1][1] >= g1 - 0.05 and \
+                            not (cuts and cuts[-1][0] == g0 and parts[-1] == parts[0]):   # silence à la fin
+                        cuts.append((parts[-1][0] + 0.12, g1))
+                    cuts[:] = [c for c in cuts if c[1] - c[0] >= 0.25]
                 continue
         cuts.append((g0, g1))
     out, t = [], start

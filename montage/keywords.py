@@ -180,15 +180,19 @@ def _lexical(occ: list, words: list, vids: list, maxd: float, taken: list) -> li
                     a, b = ss[i]["t0"], ss[i + m - 1]["t1"]
                     sc = sum(wt.get(w, 0.0) for w in set(norm(" ".join(t["text"] for t in ss[i:i + m])).split()))
                     sc = sc / (1 + 0.6 * (m - 1))   # à score égal, le passage le plus court (le plus précis) gagne
-                    free = not any(t[0] == x["id"] and min(b, t[2]) - max(a, t[1]) > 0.3 * min(b - a, t[2] - t[1])
-                                   for t in taken)
+                    from .cadence import clashes as _cl
+                    free = not _cl((a, b), [(t[1], t[2]) for t in taken if t[0] == x["id"]])
+                    if not free:
+                        continue        # jamais deux fois le même passage
                     key = (free, sc, -m)
                     if best is None or key > best[:3]:
                         best = (free, sc, -m, x, a, b)
             if not ss:  # vidéo sans parole : morceaux successifs
                 k = sum(1 for t in taken if t[0] == x["id"])
                 lo, hi = (x["cut"] if x.get("cut") else (0.0, float(x.get("duration") or 0)))
-                a = lo + k * maxd if lo + k * maxd + 3 < hi else lo
+                if lo + k * maxd + 3 >= hi:
+                    continue            # vidéo déjà entièrement utilisée
+                a = lo + k * maxd
                 if best is None:
                     best = (True, 0.0, 0, x, a, min(hi, a + maxd))
         if best:
@@ -208,7 +212,10 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
         ann.append(f"[{n}] ({tc(o['t0'])}) … {bef} « {o['phrase'].upper()} » → (extrait) → {aft} …")
     res: dict[int, dict] = {}
     excluded: dict[int, list] = {}
-    for attempt in range(2):
+    from .cadence import clashes
+    def pris(sauf=None):
+        return [(r["video"], r["a"], r["b"]) for k, r in res.items() if k >= 0 and k != sauf] + list(avoid or [])
+    for attempt in range(3):
         todo = [n for n in range(len(occ)) if n not in res]
         if not todo:
             break
@@ -216,6 +223,8 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
         if ai and ai.ok:
             ex = "; ".join([f"passage déjà montré en ouverture, à ne pas reprendre : « {by[v]['name']} » {a:.0f}-{b:.0f} s"
                             for v, a, b in (avoid or []) if v in by] +
+                           [f"passage déjà attribué à une autre annonce, interdit : « {by[r['video']]['name']} » "
+                            f"{r['a']:.0f}-{r['b']:.0f} s" for k, r in res.items() if k >= 0 and r["video"] in by] +
                            [f"annonce {n} : ne reprends pas {v} {a:.0f}-{b:.0f} s (refusé à la vérification)"
                             for n, lst in excluded.items() for v, a, b in lst]) or "—"
             j = ai.json(PICK.format(lang=lang, annonces="\n".join(ann[n] for n in todo), videos=_videos_text(vids),
@@ -235,7 +244,6 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
             if n not in todo or x is None or n in cand:
                 continue
             a, b = _clamp(x, a, b, maxd)
-            from .cadence import clashes
             if clashes((a, b), [(a2, b2) for v, a2, b2 in (avoid or []) if v == x["id"]]):
                 continue   # déjà montré en ouverture choc : l'annonce reprendra un autre passage
             cand[n] = {"n": n, "video": x["id"], "a": a, "b": b, "confidence": p.get("confidence"),
@@ -257,9 +265,12 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
                 if n in cand:
                     cand[n]["check"] = {"ok": bool(ck.get("ok")), "score": ck.get("score"),
                                         "reason": str(ck.get("reason") or "")[:200]}
-        for n, c in cand.items():
+        for n, c in sorted(cand.items()):
+            if clashes((c["a"], c["b"]), [(a2, b2) for v, a2, b2 in pris(n) if v == c["video"]]):
+                excluded.setdefault(n, []).append((c["video"], c["a"], c["b"]))   # même passage qu'une autre annonce
+                continue
             ok = (c.get("check") or {}).get("ok", True)
-            if ok or attempt == 1:
+            if ok or attempt == 2:
                 res[n] = c
             else:
                 excluded.setdefault(n, []).append((c["video"], c["a"], c["b"]))
@@ -269,14 +280,22 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
     miss = [n for n in range(len(occ)) if n not in res and -1 - n not in res]
     if miss:
         taken = [(r["video"], r["a"], r["b"]) for r in res.values()] + list(avoid or [])
-        for p in _lexical([occ[n] for n in miss], words, vids, maxd, taken):
-            x = by[p["video"]]
-            a, b = _clamp(x, p["start"], p["end"], maxd)
-            res[miss[p["n"]]] = {"n": miss[p["n"]], "video": x["id"], "a": a, "b": b, "confidence": 3, "why": p["why"]}
-    out = []
+        for n in miss:   # une annonce à la fois : chaque passage pris (à sa longueur finale) est interdit aux suivantes
+            for p in _lexical([occ[n]], words, vids, maxd, list(taken)):
+                x = by[p["video"]]
+                a, b = _clamp(x, p["start"], p["end"], maxd)
+                if clashes((a, b), [(a2, b2) for v, a2, b2 in taken if v == x["id"]]):
+                    a, b = p["start"], max(p["end"], p["start"] + 2.0)   # version courte, sans empiéter
+                    if clashes((a, b), [(a2, b2) for v, a2, b2 in taken if v == x["id"]]):
+                        continue
+                res[n] = {"n": n, "video": x["id"], "a": a, "b": b, "confidence": 3, "why": p["why"]}
+                taken.append((x["id"], a, b))
+    out, final = [], list(avoid or [])
     for n in range(len(occ)):
-        c = res.get(n) or res.get(-1 - n)
-        if c:
-            c["n"] = n
-            out.append(c)
+        for c in (res.get(n), res.get(-1 - n)):
+            if c and not clashes((c["a"], c["b"]), [(a2, b2) for v, a2, b2 in final if v == c["video"]]):
+                c["n"] = n
+                out.append(c)
+                final.append((c["video"], c["a"], c["b"]))
+                break
     return out

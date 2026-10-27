@@ -479,7 +479,8 @@ def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lan
             continue
         p = picks.get(n)
         if not p:
-            item["why"] = "aucun passage trouvé dans les vidéos jointes"
+            item["why"] = ("aucun passage libre et cohérent dans les vidéos jointes (un passage n'est jamais montré deux "
+                           "fois : ajoute plus de vidéos dans montage-joints)")
             continue
         x = by_id[p["video"]]
         asset = prepare_insert(Path(x["path"]), p["a"], p["b"], orient, work, f"insert_kw{n}", lang, ai,
@@ -635,10 +636,19 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             L.append(f"  - {tc(out_time(segs, r['t']) or 0)} → {r['video']} {tc(r['a'])} → {tc(r['b'])} : {r['why']}"
                      + (f" — vérifié ✅ ({ck.get('score')}/10)" if ck.get("ok") else "")
                      + ("" if ok_ else " — ⚠ refusé au montage (silence pas assez sûr)"))
-        for h in rythme_info["holes"]:
+        # trous fusionnés en plages qui ne se chevauchent pas (une ligne par plage, raisons regroupées)
+        merged = []
+        for h in sorted(rythme_info["holes"], key=lambda h: h["t0"]):
+            if merged and h["t0"] <= merged[-1]["t1"] + 1:
+                merged[-1]["t1"] = max(merged[-1]["t1"], h["t1"])
+                if h["why"] not in merged[-1]["why"]:
+                    merged[-1]["why"].append(h["why"])
+            else:
+                merged.append({"t0": h["t0"], "t1": h["t1"], "why": [h["why"]]})
+        for h in merged:
             a_, b_ = out_time(segs, h["t0"]), out_time(segs, h["t1"])
-            if a_ is not None and b_ is not None:
-                L.append(f"  - ⚠ entre {tc(a_)} et {tc(b_)} : pas d'extrait — {h['why']}")
+            if a_ is not None and b_ is not None and b_ > a_:
+                L.append(f"  - ⚠ entre {tc(a_)} et {tc(b_)} : pas d'extrait — " + " ; ".join(h["why"][:3]))
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         if lot_info.get("origine"):
@@ -700,8 +710,11 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     if dropped:
         L.append(f"\nVisuels écartés pour garder l'écran respirable : {len(dropped)}")
     if ai.errors:
-        L.append(f"\n<details><summary>Incidents IA ({len(ai.errors)})</summary>\n\n" +
-                 "\n".join(f"- {e}" for e in ai.errors[:15]) + "\n</details>")
+        L.append(f"\n<details><summary>⚠ Incidents IA ({len(ai.errors)}) — demandes restées sans réponse (aucune source "
+                 f"disponible)</summary>\n\n" + "\n".join(f"- {e}" for e in ai.errors[:15]) + "\n</details>")
+    if getattr(ai, "recovered", 0):
+        L.append(f"\nIA : {ai.recovered} refus momentané(s) (limite de débit, requête trop longue pour une source…) "
+                 f"rattrapé(s) automatiquement par une autre source — sans effet sur le montage.")
     (outd / "PLAN.md").write_text("\n".join(L) + "\n", encoding="utf-8")
     slim = {k: v for k, v in plan.items() if k != "visuals"}
     slim["visuals"] = [{k: v for k, v in x.items() if k != "asset"} for x in plan["visuals"]]

@@ -94,3 +94,27 @@ def test_sans_ia_rien_n_est_ajoute(tmp_path: Path):
     inserts = []
     info = fill(NoAI(), words, sents, vids(), inserts, {}, sil, "fr", "v", tmp_path, False, lambda *a: {})
     assert inserts == [] and "IA indisponible" in info["why"]
+
+
+def test_ecoutez_ca_jamais_deux_fois_le_meme_passage():
+    """L'IA propose toujours le même passage (bug du 26/10) : chaque annonce doit recevoir un passage différent."""
+    from montage.keywords import choose
+    words = [{"w": f"m{k}", "t0": k * 0.5, "t1": k * 0.5 + 0.4} for k in range(400)]
+    occ = [{"w0": w, "w1": w + 1, "t0": w * 0.5, "phrase": "écoutez ça"} for w in (40, 120, 200, 280)]
+
+    class SameAI:
+        ok = True
+
+        def json(self, prompt, image=None, media_key=""):
+            if prompt.startswith("Vérification"):
+                n = prompt.count("PASSAGE INSÉRÉ")
+                return {"checks": [{"n": k, "ok": True, "score": 9} for k in range(n)]}
+            ns = [int(x) for x in __import__("re").findall(r"^\[(\d+)\]", prompt, __import__("re").M)]
+            return {"choices": [{"n": n, "video": "v1", "start": 0, "end": 5, "why": "pareil"} for n in ns]}
+    out = choose(SameAI(), occ, words, vids(), "fr", 15, avoid=[("v1", 80.0, 88.0)])
+    assert len(out) == 4
+    seen = []
+    for c in out:
+        assert not clashes((c["a"], c["b"]), [s[1:] for s in seen if s[0] == c["video"]]), out
+        assert not (c["video"] == "v1" and clashes((c["a"], c["b"]), [(80.0, 88.0)]))
+        seen.append((c["video"], c["a"], c["b"]))

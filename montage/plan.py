@@ -108,6 +108,19 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
         return fallback(sents, att)
     j = ai.json(prompt)
     if not isinstance(j, dict):
+        # 2e chance avec une version compacte (phrases abrégées, paroles des vidéos jointes réduites) : passe aussi
+        # chez les sources qui refusent les requêtes longues — plutôt qu'un montage sans IA
+        log.warning("Plan IA sans réponse → nouvel essai en version compacte")
+        short = [dict(x, sentences=(x.get("sentences") or [])[:25]) for x in att]
+        prompt = PROMPT.format(
+            lang=lang, lang_note=" (arabe littéraire simple)" if lang == "ar" else "",
+            sentences="\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"][:110]}' for s in sents),
+            attachments=describe_attachments(short), notes=(notes or "(aucune)")[:800],
+            chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
+            max_insert=opts.get("duree_max_insert", 25),
+            max_press=(0 if opts.get("recherche_presse") == "non" else 2))
+        j = ai.json(prompt)
+    if not isinstance(j, dict):
         log.warning("Plan IA indisponible → plan minimal")
         return fallback(sents, att)
     return clean(j, sents, att)

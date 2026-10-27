@@ -23,7 +23,11 @@ def test_keep_ranges_cuts_only_real_silences():
     k = keep_ranges(W, SIL, 33, "doux")
     assert len(k) == 4                       # 4 pauses > 1 s raccourcies
     assert len(keep_ranges(W, [], 33, "doux")) == 4
-    assert len(keep_ranges(W, [(5, 6)], 33, "doux")) == 1   # le son ne confirme pas les silences : on ne coupe pas
+    # le son ne confirme qu'une partie de la pause de 3 s : seul le début VRAIMENT silencieux est retiré,
+    # le reste (bruit, peut-être un mot non reconnu) est gardé intact ; les autres pauses ne sont pas touchées
+    k1 = keep_ranges(W, [(5, 6)], 33, "doux")
+    assert len(k1) == 2
+    assert k1[1][0] <= 6.0 - 0.1 + 1e-6 and k1[0][1] <= 5.0 + 0.4
     assert all(abs(round(x * FPS) - x * FPS) < 1e-3 for r in k for x in r)
     assert keep_ranges(W, SIL, 33, "non")[0][0] < 0.5
 
@@ -98,3 +102,17 @@ def test_phantom_words_dropped_only_in_silence():
     quiet = [(1.6, 4.8), (5.8, 6.5)]
     assert drop_phantoms(w, quiet) == 3
     assert [x["w"] for x in w] == ["Bonjour", "à", "tous.", "euh", "Suite."]   # un mot isolé calme est gardé
+
+
+def test_long_pause_with_noise_keeps_the_noise():
+    """Pause de 4 s : silence 1,5 s, bruit 1 s (respiration ?), silence 1,5 s → les deux silences sont retirés, le bruit
+    reste entier (jamais coupé)."""
+    w = _words([(0.0, 4.0, "Voici le prix du poulet."), (8.0, 12.0, "Vingt-sept euros pour un poulet.")])
+    gap0, gap1 = w[4]["t1"], 8.0
+    sil = [(gap0, gap0 + 1.5), (gap1 - 1.5, gap1)]
+    k = keep_ranges(w, sil, 12.5, "non", long_gap=2.0)
+    assert len(k) == 3                                      # avant la pause / le bruit seul / après la pause
+    kept_gap = sum(min(b, gap1) - max(a, gap0) for a, b in k if min(b, gap1) > max(a, gap0))
+    assert kept_gap < 2.0                                   # la pause gardée passe sous les 2 s
+    noise = (gap0 + 1.5, gap1 - 1.5)
+    assert any(a <= noise[0] and b >= noise[1] for a, b in k)   # le bruit est gardé en entier
