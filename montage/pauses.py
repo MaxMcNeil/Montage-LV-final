@@ -205,3 +205,50 @@ def drop_phantoms(words: list, quiet: list) -> int:
                  " ".join(words[i]["w"] for i in sorted(drop))[:160])
         words[:] = [w for i, w in enumerate(words) if i not in drop]
     return len(drop)
+
+
+def voice_free_fn(src: Path, work: Path, words: list):
+    """Fonction (a, b) → True si AUCUNE voix n'est audible entre a et b (secondes).
+    Juge par rapport au niveau de TA voix (médiane du son pendant tes mots) : une respiration, un clic, un bruit de
+    chaise ou le souffle du micro restent nettement plus bas ; un mot non reconnu par la transcription, lui, est au
+    niveau de la voix pendant au moins un quart de seconde → la pause n'est alors PAS considérée comme vide."""
+    cache = work / "level.npy"
+    db = None
+    try:
+        db = np.load(cache)
+    except (OSError, ValueError):
+        try:
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(src), "-vn", "-ac", "1",
+                                "-ar", str(SR), "-f", "s16le", "-"], capture_output=True, timeout=1800)
+            x = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+            n = len(x) // HOP
+            if n > 50:
+                db = 20 * np.log10(np.sqrt(np.mean(x[:n * HOP].reshape(n, HOP) ** 2, axis=1) + 1e-12) + 1e-9)
+                np.save(cache, db)
+        except (OSError, subprocess.SubprocessError):
+            db = None
+    if db is None or not words:
+        return None
+    fps = SR / HOP
+    idx = np.zeros(len(db), dtype=bool)
+    for w in words:
+        idx[int(w["t0"] * fps):int(w["t1"] * fps) + 1] = True
+    if idx.sum() < 50:
+        return None
+    voice = float(np.median(db[idx]))
+    thr = voice - 15.0
+    log.info("Silences : niveau de ta voix %.0f dB → pause « vide » si rien au-dessus de %.0f dB plus de 0,25 s", voice, thr)
+
+    def free(a: float, b: float) -> bool:
+        i0, i1 = max(0, int(a * fps)), min(len(db), int(b * fps))
+        if i1 - i0 < 3:
+            return False
+        loud = db[i0:i1] >= thr
+        if loud.mean() > 0.10:
+            return False
+        run_ = best = 0
+        for v in loud:
+            run_ = run_ + 1 if v else 0
+            best = max(best, run_)
+        return best * HOP / SR < 0.25
+    return free

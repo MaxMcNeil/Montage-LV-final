@@ -54,7 +54,7 @@ même différer).
 
 Le titre de ta release affiche l'état : **⏳ EN COURS** → **✅ TERMINÉ** (lien vers le résultat) ou **❌ ÉCHEC** (lien vers l'erreur).
 Le résultat arrive dans la release **🎬 RÉSULTAT — Montage final** : la vidéo + **PLAN.md** (quoi, où, quand, et pourquoi).
-Chaque nouveau montage **remplace** le précédent, et les anciennes vidéos déposées sont supprimées (le dépôt ne grossit pas).
+Chaque nouveau montage **remplace** le précédent dans « 🎬 RÉSULTAT » ; tes releases déposées ne sont jamais supprimées automatiquement.
 
 Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vidéo, liens des pièces jointes, consignes, réglages).
 
@@ -140,6 +140,19 @@ sur la pause est corrigé. À la coupe, l'effet dépend de ta position :
 
 PLAN.md indique le nombre de silences raccourcis et le temps gagné ; le contrôle qualité vérifie qu'il n'en reste
 aucun. Pour garder tes longs silences : `silences_longs: non` (description de la release ou consignes).
+
+## 📂 Google Drive (comme le dépôt fond vert)
+
+- **Ta vidéo** peut être donnée par son chemin Drive dans le champ *source* : `gdrive:resultats/moi-ma-video.mp4`
+  (ou un lien Google Drive, ou un tag de release).
+- **Dossier `montage-joints`** : ses photos / vidéos sont **toujours** prises (manuel, release et chaîne). Après un
+  montage déposé avec succès, seuls les fichiers pris par ce montage en sont retirés (corbeille Drive, 30 jours).
+- **Autres pièces jointes** : champ *pieces_jointes* → `gdrive:un-dossier`, `gdrive:dossier/fichier.mp4`, liens Drive,
+  ou tag d'une release (ex. `video`).
+- **Résultat** : toujours copié sur Drive dans `resultats/montage-<nom>.mp4` (+ son PLAN), quelle que soit la taille ;
+  et aussi dans la release « 🎬 RÉSULTAT » s'il fait moins de 1,9 Go. Autre dossier : variable `RCLONE_DEST`.
+- **Tes releases déposées ne sont jamais supprimées automatiquement** (vidéos et pièces jointes) : seul leur titre
+  change d'état (⏳ / ✅ / ❌ / 📎). Une release de pièces jointes est triée en quelques secondes (📎 EN ATTENTE).
 
 ## 🎬 Ce que fait le montage
 

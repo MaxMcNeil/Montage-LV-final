@@ -16,7 +16,7 @@ CUT = {"doux": (1.0, 0.28, 0.32), "dynamique": (0.6, 0.16, 0.22)}  # pause min, 
 
 
 def keep_ranges(words: list, sil: list, duration: float, mode: str, skip_start: float = 0.0,
-                long_gap: float | None = None) -> list[tuple[float, float]]:
+                long_gap: float | None = None, voice_free=None) -> list[tuple[float, float]]:
     """Plages gardées de la vidéo source. Une pause n'est raccourcie que si les mots ET le son confirment le silence.
     long_gap (ex. 2.0) : toute pause plus longue est raccourcie à ~0,6 s, même si couper_silences = non."""
     if not words:
@@ -41,6 +41,9 @@ def keep_ranges(words: list, sil: list, duration: float, mode: str, skip_start: 
             continue
         if sil:  # le silence doit être réel (sinon : mot non reconnu, on ne coupe pas)
             cover = sum(max(0.0, min(g1, b) - max(g0, a)) for a, b in sil)
+            if cover < 0.8 * (g1 - g0) and long_gap and gap >= long_gap and voice_free and voice_free(g0, g1):
+                cuts.append((g0, g1))   # pause longue avec seulement respiration / bruit de fond (aucune voix) : coupée
+                continue
             if cover < 0.8 * (g1 - g0):
                 # pause de plus de 2 s avec un petit bruit (respiration, chaise…) : on ne touche JAMAIS au bruit (ce
                 # pourrait être un mot non reconnu), mais on retire les parties vraiment silencieuses avant et après.
@@ -134,8 +137,54 @@ def find_pause(words: list, sents: list, sil: list, after: int, look: int = 3) -
     return q(best[2]) if best else None
 
 
+def _cut_keep(keep: list, a: float, b: float) -> list:
+    """Retire [a, b] des plages gardées."""
+    out = []
+    for x, y in keep:
+        if y <= a or x >= b:
+            out.append((x, y))
+            continue
+        if x < a - 1 / FPS:
+            out.append((x, q(a)))
+        if y > b + 1 / FPS:
+            out.append((q(b), y))
+    return [(x, y) for x, y in out if y - x >= 2 / FPS]
+
+
+def tighten_inserts(pts: list, keep: list, words: list, sil: list, voice_free=None) -> list:
+    """Autour d'un extrait inséré, ta pause est ramenée à une respiration naturelle : ~0,3 s après ta phrase, puis
+    l'extrait, puis ~0,25 s avant ton mot suivant. Plus jamais 2 ou 3 secondes de vide avant / après un extrait.
+    Seulement si la pause ne contient aucune voix (silence confirmé par le son, ou seulement souffle / bruit)."""
+    if not words:
+        return keep
+    for p in sorted(pts, key=lambda p: p["t"]):
+        t = p["t"]
+        k = next((i for i in range(len(words)) if words[i]["t1"] <= t + 1e-6 and
+                  (i + 1 == len(words) or words[i + 1]["t0"] >= t - 1e-6)), None)
+        if k is None:
+            continue
+        a = q(words[k]["t1"] + 0.30)
+        last = k + 1 >= len(words)
+        b = q(words[k + 1]["t0"] - 0.25) if not last else None
+        if last:   # extrait après ta dernière phrase : la vidéo finit sur l'extrait
+            if keep and keep[-1][1] > a:
+                keep = _cut_keep(keep, a, keep[-1][1] + 1)
+                p["t"] = keep[-1][1] if keep else t
+            continue
+        if b - a < 0.3:
+            continue
+        cover = sum(max(0.0, min(b, y) - max(a, x)) for x, y in (sil or []))
+        if cover < 0.8 * (b - a) and not (voice_free and voice_free(a, b)):
+            continue   # du son au niveau de ta voix dans la pause : on n'y touche pas
+        keep = _cut_keep(keep, a, b)
+        nxt = next((x for x, y in keep if x >= b - 1e-6), None)
+        if nxt is not None:
+            p["t"] = nxt
+    return keep
+
+
 def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None,
-             sil=None) -> tuple[list, list]:
+             sil=None, voice_free=None) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -165,6 +214,8 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
             log.warning("point d'insertion %.2f s sur un mot : extrait non inséré", t)
             continue
         pts.append({"t": t, **ins})
+    # 1b) pas de vide autour des extraits : pause ramenée à une respiration avant et après
+    keep = tighten_inserts(pts, keep, words, sil or [], voice_free)
     # 2) médias à côté de toi : fenêtre calée sur le mot déclencheur
     chap_t = [sents[c["s"]]["t0"] for c in chapters if c["s"] < len(sents)]
     first_t = keep[0][0]

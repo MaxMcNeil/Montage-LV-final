@@ -16,11 +16,11 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "Vidéo : lien Google Drive, lien direct ou tag de release (vide = dernière release « montage… »). 📌 Après le montage : titre du résultat ✅ = publie, ⚠ = regarde PLAN.md"
+        description: "Vidéo : chemin Drive (ex : gdrive:resultats/moi-video.mp4), lien Google Drive, lien direct ou tag de release (vide = dernière release « montage… »). 📌 Après le montage : titre du résultat ✅ = publie, ⚠ = regarde PLAN.md"
         required: false
         default: ""
       pieces_jointes:
-        description: "Photos / vidéos en plus : liens Google Drive (fichiers ou DOSSIER) et/ou tags de releases (ex : Video), séparés par des espaces"
+        description: "Photos / vidéos EN PLUS du dossier Drive montage-joints (toujours pris) : chemins Drive (gdrive:dossier), liens Google Drive et/ou tags de releases (ex : video), séparés par des espaces"
         required: false
         default: ""
       consignes:
@@ -75,9 +75,28 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Tri en quelques secondes : une release de pièces jointes (sans fichier « moi… ») ne lance PAS tout l'outillage,
+  # elle passe juste en 📎 EN ATTENTE. Rien n'est jamais supprimé.
+  tri:
+    if: github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'out-')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      go: ${{ steps.t.outputs.go }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+      - id: t
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT_TAG: ${{ github.event.release.tag_name }}
+        run: python3 scripts/fetch_inputs.py tri
+
   montage:
-    if: >-
-      github.event_name != 'release' || !startsWith(github.event.release.tag_name, 'out-')
+    needs: tri
+    if: needs.tri.outputs.go == '1'
     outputs:
       chaine_id: ${{ github.event.client_payload.chaine_id }}
       video_url: ${{ steps.pubc.outputs.video_url }}
@@ -106,6 +125,7 @@ jobs:
       YT_COOKIES: ${{ secrets.YT_COOKIES }}
       VPF_DIR: vpf
       RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+      RCLONE_DEST: ${{ vars.RCLONE_DEST }}          # dossier Drive des résultats (vide = <stockage>:resultats)
       QF_CACHE_DIR: .cache
       QF_QUOTA_FILE: state/quota.json
       PYTHONPATH: vpf
@@ -227,6 +247,7 @@ jobs:
           SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
           BASE: ${{ steps.fetch.outputs.base }}
           CONSUMED: ${{ steps.fetch.outputs.consumed }}
+          JOINTS_DOSSIER: ${{ steps.fetch.outputs.joints_dossier }}
         run: bash scripts/publish.sh
 
       - name: Chaîne — publier le montage (release out-chaine, 2 jours)

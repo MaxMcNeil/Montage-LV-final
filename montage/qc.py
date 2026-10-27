@@ -101,6 +101,34 @@ def check(final: Path, segs: list, words: list, ass_path: Path, long_gap: float 
                 bad.append(f"cohérence douteuse à {tc(it['out'])}")
         res.append((not bad, f"{len(its)} « écoutez… » → {sum(1 for i in its if i['inserted'])} extrait(s) juste après"
                     if not bad else "mots-clés : " + ", ".join(bad[:6])))
+    # 3d) blancs réellement entendus dans la vidéo finale (mesurés sur le son final : extraits compris)
+    if long_gap:
+        try:
+            import subprocess
+            import numpy as np
+            r = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(final), "-vn", "-ac", "1",
+                                "-ar", "8000", "-f", "s16le", "-"], capture_output=True, timeout=1800)
+            x = np.frombuffer(r.stdout, dtype=np.int16).astype(np.float32) / 32768.0
+            n = len(x) // 160
+            if n > 100:
+                db = 20 * np.log10(np.sqrt(np.mean(x[:n * 160].reshape(n, 160) ** 2, axis=1) + 1e-12) + 1e-9)
+                thr = float(np.percentile(db, 60)) - 15.0
+                low = db < thr
+                blancs, k = [], 0
+                while k < n:
+                    if low[k]:
+                        j = k
+                        while j < n and low[j]:
+                            j += 1
+                        if (j - k) * 0.02 >= long_gap + 0.2 and k > 25 and j < n - 25:   # hors tout début / toute fin
+                            blancs.append(f"{tc(k * 0.02)} ({(j - k) * 0.02:.1f} s)")
+                        k = j
+                    else:
+                        k += 1
+                res.append((not blancs, f"aucun blanc de plus de {long_gap:.0f} s à l'écoute" if not blancs else
+                            f"{len(blancs)} blanc(s) de plus de {long_gap:.0f} s à l'écoute : " + ", ".join(blancs[:8])))
+        except Exception as e:  # noqa: BLE001
+            log.warning("mesure des blancs impossible : %s", e)
     # 4) textes d'habillage qui se chevauchent
     ev = [e for e in _ass_events(ass_path) if e[2] in ("Hook", "Chap", "Outro")]
     over = []

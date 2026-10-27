@@ -137,6 +137,72 @@ def from_drive(link: str, dest: Path) -> list[Path]:
     return [p for p in dest.rglob("*") if p.is_file() and p not in before]
 
 
+RCLONE_PATH_RE = re.compile(r"^([A-Za-z0-9_ .-]+):(?!//)(.*)$")
+
+
+def is_rclone_path(s: str) -> bool:
+    """« gdrive:resultats/moi-x.mp4 », « gdrive:montage-joints » (chemin rclone, comme dans le dépôt fond vert)."""
+    s = (s or "").strip()
+    return bool(s) and not s.lower().startswith(("http:", "https:")) and bool(RCLONE_PATH_RE.match(s))
+
+
+def from_rclone(path: str, dest: Path) -> list[Path]:
+    """Copie un fichier OU un dossier Google Drive donné en chemin rclone. Le nom du stockage tapé (« gdrive: »)
+    est remplacé par celui de ton RCLONE_CONF s'il est différent."""
+    rem = rclone_remote()
+    if not rem:
+        msg = f"chemin Google Drive « {path} » ignoré : secret RCLONE_CONF absent (ou rclone indisponible)"
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+        return []
+    m = RCLONE_PATH_RE.match(path.strip())
+    sub = m.group(2).strip().strip("/") if m else path
+    full = f"{rem}:{sub}"
+    dest.mkdir(parents=True, exist_ok=True)
+    before = set(dest.rglob("*"))
+    print(f"Google Drive (rclone) : {full}")
+    r = sh(["rclone", "copy", full, dest, "--drive-acknowledge-abuse", "-q", "--retries", "3"], check=False,
+           timeout=7200)
+    got = [p for p in dest.rglob("*") if p.is_file() and p not in before]
+    if r.returncode != 0 or not got:
+        msg = f"rien récupéré sur Google Drive pour « {path} » ({(r.stderr or '').strip()[-160:] or 'dossier vide ?'})"
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+    return got
+
+
+def drive_joints(dest: Path) -> list[Path]:
+    """Montage lancé à la main / par une release : les photos et vidéos du dossier Drive « montage-joints » sont prises
+    aussi (comme dans la chaîne). Seuls les fichiers réellement pris sont retirés du dossier après un montage RÉUSSI
+    (input/joints-utilises.txt), jamais avant."""
+    joints = (os.environ.get("MONTAGE_JOINTS_DRIVE") or "montage-joints").strip().strip("/")
+    if os.environ.get("JOINTS_DRIVE", "oui").strip().lower() in ("non", "no", "0", "false"):
+        return []
+    rem = rclone_remote()
+    if not rem:
+        return []
+    ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
+    pris = [x.strip() for x in (ls.stdout or "").splitlines() if MEDIA_RE.search(x.strip())]
+    if not pris:
+        print(f"Dossier Drive « {joints} » : vide")
+        return []
+    lst = IN / "joints-liste.txt"
+    lst.write_text("\n".join(pris) + "\n", encoding="utf-8")
+    dest.mkdir(parents=True, exist_ok=True)
+    r = sh(["rclone", "copy", f"{rem}:{joints}", dest, "--files-from", lst, "--drive-acknowledge-abuse", "-q",
+            "--retries", "3"], check=False, timeout=7200)
+    got = sorted(p for p in dest.rglob("*") if p.is_file())
+    if r.returncode != 0:
+        msg = f"une partie des fichiers de « {joints} » n'a pas pu être téléchargée"
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+    (IN / "joints-utilises.txt").write_text("\n".join(str(p.relative_to(dest)) for p in got) + ("\n" if got else ""),
+                                          encoding="utf-8")
+    out("joints_dossier", joints)
+    print(f"Dossier Drive « {joints} » : {len(got)} fichier(s) → " + ", ".join(p.name for p in got))
+    return got
+
+
 # ---------------------------------------------------------------- Releases
 def release_body(tag: str) -> str:
     try:
@@ -354,8 +420,12 @@ def main():
     tag = (os.environ.get("EVENT_TAG") or "").strip()
     body = ""
     files: list[Path] = []
+    for f in ("joints-utilises.txt", "joints-liste.txt"):
+        (IN / f).unlink(missing_ok=True)
     if src:
-        if re.search(r"(drive|docs)\.google\.com", src) or re.fullmatch(r"[A-Za-z0-9_-]{25,}", src):
+        if is_rclone_path(src):
+            files += from_rclone(src, RAW)
+        elif re.search(r"(drive|docs)\.google\.com", src) or re.fullmatch(r"[A-Za-z0-9_-]{25,}", src):
             files += from_drive(src, RAW)
         elif src.startswith("http"):
             files += from_url(src, RAW)
@@ -396,7 +466,9 @@ def main():
         links += l3
         notes = (notes + "\n" + n3).strip()
     # releases de pièces jointes : citées dans le champ « pieces_jointes » (ex. « Video »), ou en attente (< 3 jours)
-    named = [t for t in re.split(r"[\s,;]+", pieces) if t and not t.startswith("http")]
+    toks = [t for t in re.split(r"[\s,;]+", pieces) if t]
+    rc_paths = [t for t in toks if is_rclone_path(t)]
+    named = [t for t in toks if not t.startswith("http") and not is_rclone_path(t)]
     consumed = []
     for t in dict.fromkeys(named + waiting_releases({tag} if tag else set())):
         if t == tag:
@@ -421,14 +493,16 @@ def main():
         if k == 0 and u in links:
             first_link = got
         files += got
+    for k, u in enumerate(rc_paths):   # « gdrive:dossier » ou « gdrive:dossier/fichier.mp4 » dans pieces_jointes
+        files += from_rclone(u, RAW / f"rc{k}")
+    files += drive_joints(RAW / "joints")   # dossier Drive montage-joints (comme dans la chaîne)
     big = lambda fs: sorted([f for f in fs if is_video(f)], key=lambda f: f.stat().st_size, reverse=True)  # noqa: E731
     # vidéo principale :
     #   1. un fichier dont le nom commence par « moi » (moi.mp4, Moi_intro.mov…), où qu'il soit (release ou Drive) ;
     #   2. sinon la plus grosse vidéo jointe à la release (ou donnée en « source ») ;
     #   3. sinon la vidéo du premier lien Drive de la description.
     mine = big([f for f in files if is_mine(f.name)])
-    direct = big([f for f in files if not any(f.is_relative_to(RAW / f"lien{k}") for k in range(len(extra)))
-                  and not f.relative_to(RAW).parts[0].startswith("attente_")])
+    direct = big([f for f in files if f.parent == RAW])   # fichiers de la release / de la source elle-même
     main_video = (mine or direct or big(first_link) or big(files) or [None])[0]
     if main_video is None:
         die("Aucune vidéo trouvée : joins ta vidéo à la release (ou colle son lien Google Drive partagé dans la description).")
@@ -465,5 +539,30 @@ def main():
         die("Le fichier n'est pas une vidéo lisible (lien Drive privé ? page web reçue à la place de la vidéo ?).")
 
 
+def tri():
+    """Décision rapide (quelques secondes, sans rien installer) pour une release publiée : faut-il monter ?
+    - tag « montage… » → oui ;  - fichier « moi… » ou lien Google Drive dans la description → oui ;
+    - sinon c'est une release de pièces jointes → 📎 EN ATTENTE, pas de montage (rien n'est supprimé)."""
+    ev = os.environ.get("GITHUB_EVENT_NAME", "")
+    tag = (os.environ.get("EVENT_TAG") or "").strip()
+    go = "1"
+    if ev == "release":
+        if tag.lower().startswith("out-"):
+            go = "0"
+        elif not tag.lower().startswith("montage"):
+            names = asset_names(tag)
+            if not any(is_mine(n) for n in names) and not re.search(DRIVE_RE, release_body(tag)):
+                go = "0"
+                print(f"Release « {tag} » : pièces jointes (pas de fichier « moi… ») → en attente du prochain montage")
+                subprocess.run(["bash", "scripts/release-status.sh", tag, "wait",
+                                "pièces jointes en attente : elles seront ajoutées au prochain montage (release « montage… » "
+                                "ou Run workflow) dans les 3 jours, ou quand tu écris « " + tag + " » dans pieces_jointes"])
+    out("go", go)
+    print(f"Montage : {'oui' if go == '1' else 'non'}")
+
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ["tri"]:
+        tri()
+    else:
+        main()

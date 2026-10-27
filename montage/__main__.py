@@ -362,9 +362,17 @@ def main(argv=None) -> int:
     if b0 > 0:
         log.info("Images noires au début de ta vidéo (%.2f s) : retirées", b0)
     long_gap = 2.0 if opts.get("silences_longs") == "oui" else None
-    keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap)
+    voice_free = None
+    if info["audio"] and words:
+        try:
+            from .pauses import voice_free_fn
+            voice_free = voice_free_fn(src, work, words)
+        except Exception as e:  # noqa: BLE001
+            log.warning("mesure du niveau de ta voix impossible : %s", e)
+    keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap,
+                       voice_free=voice_free)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
-                            opener=opener, sil=sil_all)
+                            opener=opener, sil=sil_all, voice_free=voice_free)
     if kw_info:  # mots-clés : extrait réellement placé ? (sinon la raison est notée)
         placed = {s.insert.get("kw"): s for s in segs if s.kind == "insert" and s.insert.get("kw") is not None}
         for it in kw_info["items"]:

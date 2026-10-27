@@ -116,3 +116,17 @@ def test_long_pause_with_noise_keeps_the_noise():
     assert kept_gap < 2.0                                   # la pause gardée passe sous les 2 s
     noise = (gap0 + 1.5, gap1 - 1.5)
     assert any(a <= noise[0] and b >= noise[1] for a, b in k)   # le bruit est gardé en entier
+
+
+def test_no_blank_around_inserts():
+    from montage.timeline import tighten_inserts
+    w = _words([(0.0, 4.0, "Première phrase ici."), (7.0, 10.0, "Suite de la vidéo.")])   # pause de 3 s
+    keep = [(0.0, 10.5)]
+    pts = [{"t": 5.5}]
+    # pause avec seulement du souffle : silence non confirmé, mais aucune voix → resserrée
+    k2 = tighten_inserts(pts, list(keep), w, [], voice_free=lambda a, b: True)
+    gap = [(a, b) for a, b in zip([x[1] for x in k2], [x[0] for x in k2[1:]])]
+    assert gap and 2.0 < gap[0][1] - gap[0][0] < 3.0 and abs(pts[0]["t"] - k2[1][0]) < 1e-6
+    # voix possible dans la pause : on n'y touche pas
+    pts2 = [{"t": 5.5}]
+    assert tighten_inserts(pts2, list(keep), w, [], voice_free=lambda a, b: False) == keep and pts2[0]["t"] == 5.5
