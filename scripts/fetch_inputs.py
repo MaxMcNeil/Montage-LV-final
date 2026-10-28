@@ -378,9 +378,8 @@ def chaine():
     # photos / vidéos du dossier montage-joints
     ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
     pris = [l.strip() for l in (ls.stdout or "").splitlines() if MEDIA_RE.search(l.strip())]
-    if finder == "non" and not pris:
-        die(f"Synchro Finder = non, mais le dossier Google Drive « {joints} » est vide (ou absent) : rien à insérer. "
-            f"Dépose tes photos / vidéos dans « {joints} », puis relance ce run (« Re-run jobs ») : la vidéo attend 2 jours sur Drive.")
+    if not pris:   # « montage-joints » est un PLUS : vide, le montage continue
+        print(f"Dossier « {joints} » vide : pas grave, le montage continue sans pièces jointes")
     n = 0
     if pris:
         lst = IN / "joints-liste.txt"
@@ -392,8 +391,10 @@ def chaine():
             print(f"::warning::{msg} : {(r.stderr or '').strip()[-200:]}")
             WARN.append(msg)
         got = sorted(p for p in jd.rglob("*") if p.is_file()) if jd.exists() else []
-        if finder == "non" and not got:
-            die(f"Chaîne : impossible de télécharger les fichiers du dossier « {joints} ».")
+        if not got:
+            msg = f"fichiers du dossier « {joints} » non téléchargés (Drive) : montage fait sans eux"
+            print(f"::warning::{msg}")
+            WARN.append(msg)
         ok = []
         for f in got:
             n += 1
@@ -408,6 +409,9 @@ def chaine():
     notes, cuts = parse_cuts(os.environ.get("NOTES") or "")
     notes, opts, _ = parse_body(notes)
     opts["finder"] = finder
+    # ton choix « Vid-o-presse-finder » de la chaîne : oui = recherche par affirmation + dernier lot ; non = AUCUNE recherche
+    opts["recherche_presse"] = "non" if finder == "non" else "oui"
+    print(f"Vid-o-presse-finder : {'aucune recherche (choix non)' if finder == 'non' else 'recherche par affirmation + dernier lot'}")
     (IN / "notes.txt").write_text(notes, encoding="utf-8")
     (IN / "warnings.txt").write_text("\n".join(WARN), encoding="utf-8")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
