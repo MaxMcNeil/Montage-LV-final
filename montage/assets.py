@@ -184,8 +184,9 @@ def wiki_image(query: str, langs: list[str], dest: Path) -> dict | None:
 
 
 # ------------------------------------------------------------------ Vid-o-presse-finder
-def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0) -> dict:
-    """Lance une recherche Vid-o-presse-finder (processus séparé, limité dans le temps). Retourne clips + articles."""
+def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_file: Path | None = None) -> dict:
+    """Lance une recherche Vid-o-presse-finder (processus séparé, limité dans le temps). Retourne clips + articles.
+    quota_file : copie privée de l'état des quotas (recherches en parallèle), refusionnée ensuite."""
     out = work / "press"
     sid = f"s{abs(hash((p['target'], p['claim']))) % 10_000:04d}"
     langs = p.get("langs") or ""
@@ -195,12 +196,24 @@ def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0) -> dict:
            "--speakers", "auto", "--authority", "moyenne", "--max-videos", "5", "--max-articles", "4",
            "--langs", langs, "--max-minutes", str(minutes), "--out", str(out), "--batch-id", "lot", "--search-id", sid]
     log.info("Recherche presse : %s | %s", p["target"], p.get("claim", ""))
+    res = {"clips": [], "articles": [], "posts": [], "error": "", "social": {}}
     try:
-        subprocess.run(cmd, timeout=minutes * 60 + 240, capture_output=True, text=True)
+        env = dict(os.environ)
+        if quota_file:
+            env["QF_QUOTA_FILE"] = str(quota_file)
+        r = subprocess.run(cmd, timeout=minutes * 60 + 240, capture_output=True, text=True, env=env)
+        if r.returncode not in (0,):
+            tail = [x for x in (r.stderr or "").strip().splitlines() if x.strip()][-3:]
+            res["error"] = {2: "aucune clé IA (secret GEMINI_API_KEYS)", 3: "IA indisponible pour préparer la recherche",
+                            4: "erreur interne de la recherche"}.get(r.returncode, f"code {r.returncode}")
+            log.warning("recherche presse « %s » : %s — %s", p["target"], res["error"], " | ".join(tail)[-300:])
+    except subprocess.TimeoutExpired:
+        res["error"] = "trop longue : arrêtée"
+        log.warning("recherche presse « %s » arrêtée (temps dépassé)", p["target"])
     except (subprocess.SubprocessError, OSError) as e:
+        res["error"] = f"interrompue ({type(e).__name__})"
         log.warning("recherche presse interrompue : %s", e)
     d = out / "lot" / sid
-    res = {"clips": [], "articles": []}
     try:
         res["clips"] = json.loads((d / "montage.json").read_text(encoding="utf-8")).get("clips", [])
     except (OSError, ValueError):
@@ -210,7 +223,17 @@ def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0) -> dict:
             res["articles"] = list(csv.DictReader(f))
     except OSError:
         pass
-    log.info("  → %d extrait(s) vidéo, %d article(s)", len(res["clips"]), len(res["articles"]))
+    from .finder import read_posts
+    res["posts"] = read_posts([d / "posts.csv"]) if (d / "posts.csv").exists() else []
+    try:
+        res["social"] = ((json.loads((d / "results.json").read_text(encoding="utf-8")).get("plan") or {})
+                         .get("diag") or {}).get("social") or {}
+    except (OSError, ValueError):
+        pass
+    if not res["error"] and (d / "ERREUR.txt").exists():
+        res["error"] = (d / "ERREUR.txt").read_text(encoding="utf-8", errors="replace").strip().splitlines()[0][:160]
+    log.info("  → %d extrait(s) vidéo, %d article(s), %d message(s) Telegram/Reddit%s", len(res["clips"]),
+             len(res["articles"]), len(res["posts"]), f" — ⚠ {res['error']}" if res["error"] else "")
     return res
 
 

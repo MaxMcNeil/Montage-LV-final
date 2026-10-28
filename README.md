@@ -58,6 +58,21 @@ Chaque nouveau montage **remplace** le précédent dans « 🎬 RÉSULTAT » ; t
 
 Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vidéo, liens des pièces jointes, consignes, réglages).
 
+## 🆕 Habillage, mise en scène, recherche par affirmation
+
+- **Chaîne (logo, nom, couleurs)** : dossier [`chaines/`](chaines/README.md), une chaîne par langue (fr, ar, puis it, en…).
+  Choisie selon la langue de la vidéo ; réglage `chaine: ar` pour forcer, `chaine: non` / `logo: non` pour retirer.
+- **« Écoutez ça » dans 4 langues** : *écoutez ça · écoutez ce qu'il dit…* / *ascoltate questo · ascoltate cosa dice…* /
+  *listen to this · listen to what he says…* / *اسمعوا هذا · اسمعوا ماذا يقول…* → l'extrait de ta vidéo jointe juste après.
+- **Mise en scène par ta voix** (`mise_en_scene: non` pour couper) : ton qui monte → plan serré (coupe au début de la
+  phrase), ton posé → plan large, débit rapide → plans plus courts. Jamais deux fois le même plan de suite.
+- **Recherche par affirmation** (`affirmations: 6` par défaut, `0` = aucune) : les affirmations vérifiables de ta vidéo
+  sont cherchées une par une (vidéos, presse, **Telegram**, **Reddit**), même si le lot Finder est utilisé (sans
+  refaire ce qu'il couvre déjà). PLAN.md liste chaque affirmation (trouvé / rien / pourquoi) et une section
+  **🛡 Ce qui te contredit** : à anticiper dans ta vidéo.
+- **Telegram** : secrets `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` — session **différente** de celle de
+  Vid-o-presse-finder (Telegram détruit une session utilisée en même temps sur deux machines).
+
 ## 🔗 Synchro avec Vid-o-presse-finder
 
 Ton enchaînement : tu lances **Vid-o-presse-finder** sur ton sujet → tu enregistres ta vidéo d'après ses résultats →

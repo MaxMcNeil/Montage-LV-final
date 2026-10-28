@@ -292,13 +292,17 @@ class ASS:
                          ml=140, mr=140, mv=mv)
 
     # ------------------------------------------------------------------ fin
-    def outro(self, total: float, line1: str, line2: str, dur: float = 5.5):
+    def outro(self, total: float, line1: str, line2: str, dur: float = 5.5, logo: bool = False):
+        """logo=True : place gardée à gauche pour le grand logo de la chaîne (self.outro_box la décrit)."""
+        self.outro_box = None
         if total < 20:
             return
         W = self.W
         t0 = total - dur
         fs = int((84 if self.o == "h" else 76) * self.k)
-        l1 = _balance((line1 or "").split(), int((W - 200) / (0.50 * fs)))[:3]
+        slot = (330 if self.o == "h" else 250) if logo else 0
+        cx = (slot + W) // 2 if slot else W // 2
+        l1 = _balance((line1 or "").split(), int((W - 200 - slot) / (0.50 * fs)))[:3]
         lh = int(fs * 1.16)
         half = (len(l1) * lh + 70 + 60) // 2
         y = self.text_band_y(half)
@@ -306,9 +310,11 @@ class ASS:
         self.add(t0, total, "Box", r"{\an7\pos(0,0)\fad(500,0)\1a&H20&\p1}" +
                  f"m 0 {top} l {W} {top} l {W} {bot} l 0 {bot}" + r"{\p0}", layer=6)
         ty = top + 30 + (len(l1) * lh) // 2
-        self.add(t0 + 0.2, total, "Outro", r"{\an5\pos(" + f"{W // 2},{ty}" + r")\fad(500,0)\fscx95\fscy95"
+        self.add(t0 + 0.2, total, "Outro", r"{\an5\pos(" + f"{cx},{ty}" + r")\fad(500,0)\fscx95\fscy95"
                  r"\t(0,600,0.5,\fscx100\fscy100)}" + r"\N".join(esc(x) for x in l1), layer=7)
-        self.add(t0 + 0.6, total, "OutroSm", r"{\an5\pos(" + f"{W // 2},{bot - 50}" + r")\fad(500,0)}" + esc(line2), layer=7)
+        self.add(t0 + 0.6, total, "OutroSm", r"{\an5\pos(" + f"{cx},{bot - 50}" + r")\fad(500,0)}" + esc(line2), layer=7)
+        if slot:
+            self.outro_box = (top, bot, t0 + 0.3, slot)
 
 
 _WEAK = {"je", "tu", "il", "on", "le", "la", "les", "l'", "de", "des", "du", "d'", "un", "une", "à", "au", "aux", "et",

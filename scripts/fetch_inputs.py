@@ -24,8 +24,9 @@ from pathlib import Path
 VIDEO = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".3gp", ".mts")
 IMAGE = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif", ".avif")
 KEYS = ["couper_silences", "sous_titres", "recherche_presse", "max_inserts", "duree_max_insert", "images_web",
-        "effets_sonores", "fin", "langue", "finder", "ouverture_choc", "silences_longs", "mots_cles", "rythme"]
-ALIASES = {"cadence": "rythme", "rythme_extraits": "rythme", "retention": "rythme", "silences": "couper_silences", "coupe": "couper_silences", "sous-titres": "sous_titres", "subtitles": "sous_titres",
+        "effets_sonores", "fin", "langue", "finder", "ouverture_choc", "silences_longs", "mots_cles", "rythme",
+        "affirmations", "chaine", "logo", "mise_en_scene"]
+ALIASES = {"channel": "chaine", "canale": "chaine", "claims": "affirmations", "affirmation": "affirmations", "cadence": "rythme", "rythme_extraits": "rythme", "retention": "rythme", "silences": "couper_silences", "coupe": "couper_silences", "sous-titres": "sous_titres", "subtitles": "sous_titres",
            "presse": "recherche_presse", "inserts": "max_inserts", "insertions": "max_inserts", "duree_insert": "duree_max_insert",
            "photos_web": "images_web", "effets": "effets_sonores", "sons": "effets_sonores", "carte_fin": "fin",
            "lang": "langue", "language": "langue", "lot": "finder", "vid_o_presse_finder": "finder",
@@ -283,9 +284,11 @@ def from_url(u: str, dest: Path) -> list[Path]:
 def parse_body(body: str) -> tuple[str, dict, list[str]]:
     opts, keep, links = {}, [], re.findall(DRIVE_RE, body)
     for line in body.splitlines():
-        m = re.match(r"^\s*[-*•]?\s*([A-Za-zéèàçù_ -]{3,25})\s*[:=]\s*(.+?)\s*$", line)
+        m = re.match(r"^\s*[-*•]?\s*([A-Za-zéèàçùîïô_ -]{3,25})\s*[:=]\s*(.+?)\s*$", line)
         if m:
-            k = m.group(1).strip().lower().replace(" ", "_").replace("é", "e").replace("è", "e")
+            k = m.group(1).strip().lower().replace(" ", "_").replace("-", "_")
+            for a_, b_ in (("é", "e"), ("è", "e"), ("î", "i"), ("ï", "i"), ("ô", "o"), ("à", "a"), ("ç", "c"), ("ù", "u")):
+                k = k.replace(a_, b_)
             k = ALIASES.get(k, k)
             if k in KEYS:
                 opts[k] = m.group(2).strip().lower()

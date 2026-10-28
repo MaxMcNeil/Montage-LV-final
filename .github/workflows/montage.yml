@@ -61,6 +61,11 @@ on:
         type: choice
         options: [défaut, oui, non]
         default: défaut
+      chaine:
+        description: "Chaîne (logo, couleurs) : auto = selon la langue de la vidéo ; sinon dossier chaines/<code>"
+        type: choice
+        options: [auto, fr, ar, it, en, non]
+        default: auto
       finder:
         description: "Synchro avec Vid-o-presse-finder : oui = son DERNIER lot ; osint = dernier lot lancé par OSINT-teleprompter- ; non = juste tes pièces jointes"
         type: choice
@@ -123,6 +128,10 @@ jobs:
       NYT_API_KEYS: ${{ secrets.NYT_API_KEYS }}
       YT_PROXY_URL: ${{ secrets.YT_PROXY_URL }}
       YT_COOKIES: ${{ secrets.YT_COOKIES }}
+      # Telegram (facultatif) : session PROPRE à ce dépôt — jamais la même que celle de Vid-o-presse-finder
+      TG_API_ID: ${{ secrets.TG_API_ID }}
+      TG_API_HASH: ${{ secrets.TG_API_HASH }}
+      TG_SESSION: ${{ secrets.TG_SESSION }}
       VPF_DIR: vpf
       RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
       RCLONE_DEST: ${{ vars.RCLONE_DEST }}          # dossier Drive des résultats (vide = <stockage>:resultats)
@@ -232,6 +241,7 @@ jobs:
           MONTAGE_MOTS_CLES: ${{ inputs.mots_cles }}
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
           MONTAGE_FINDER: ${{ inputs.finder || github.event.client_payload.finder }}
+          MONTAGE_CHAINE: ${{ inputs.chaine }}
         run: |
           mkdir -p fonts state
           if [ -n "${YT_COOKIES:-}" ]; then printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/yt-cookies.txt"; export YT_COOKIES_FILE="$RUNNER_TEMP/yt-cookies.txt"; fi

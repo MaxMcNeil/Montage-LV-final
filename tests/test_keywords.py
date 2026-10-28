@@ -71,3 +71,24 @@ def test_choose_without_ai_uses_matching_words():
         {"t0": 0, "t1": 8, "text": "Les impôts baissent."}, {"t0": 20, "t1": 28, "text": "La réforme des retraites arrive."}]}]
     res = choose(None, occ, words, vids, "fr", 25)
     assert res and res[0]["a"] >= 19
+
+
+def test_four_languages():
+    ok = {"Ascoltate questo.": "ascoltate questo", "ascoltate che cosa dice:": "ascoltate cosa dice",
+          "Sentite qua!": "sentite qua", "Listen to this.": "listen to this",
+          "listen to what they're saying": "listen to what they're saying",
+          "إسمعوا هذا.": "اسمعوا هذا", "اسمعو هذا": "اسمعوا هذا", "اسمعوا ماذا يقولون": "اسمعوا ماذا يقولون",
+          "اسمعوا هذا الكلام": "اسمعوا هذا الكلام", "اسمعوا ما تقولة": "اسمعوا ما تقوله"}
+    for s, want in ok.items():
+        occ = find_occurrences(_w("x " + s + " y"))
+        assert [o["phrase"] for o in occ] == [want], s
+    for s in ("listen, this is", "ascoltate, questo", "listen to me", "ascoltate bene", "اسمعوا", "listening to this"):
+        assert find_occurrences(_w("x " + s + " y")) == [], s
+
+
+def test_short_flag_by_language():
+    assert find_occurrences(_w("listen to this"))[0]["short"]
+    assert find_occurrences(_w("اسمعوا هذا"))[0]["short"]
+    assert not find_occurrences(_w("listen to what he says"))[0]["short"]
+    assert not find_occurrences(_w("اسمعوا هذا الكلام"))[0]["short"]   # la plus longue l'emporte
+    assert find_occurrences(_w("écoutez ça"))[0]["wait"] < 2

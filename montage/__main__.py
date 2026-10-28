@@ -49,12 +49,16 @@ def options(path: str | None) -> dict:
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا", "aucun", "aucuns", "sans", "désactivé", "desactive", "désactivés", "nessuno"}
     for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs",
-              "mots_cles", "rythme"):
+              "mots_cles", "rythme", "logo", "mise_en_scene"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
     if o["couper_silences"] not in ("doux", "dynamique", "non"):
         o["couper_silences"] = "non" if o["couper_silences"] in no else C.DEFAULTS["couper_silences"]
+    m = re.search(r"\d+", o.get("affirmations") or "")
+    o["affirmations"] = "0" if (o.get("affirmations") or "") in no else str(min(12, int(m.group(0)))) if m \
+        else C.DEFAULTS["affirmations"]
+    o["chaine"] = (o.get("chaine") or "auto").strip() or "auto"
     for k in ("max_inserts", "duree_max_insert"):
         m = re.search(r"\d+", o[k] or "")
         o[k] = m.group(0) if m else C.DEFAULTS[k]
@@ -111,6 +115,20 @@ def main(argv=None) -> int:
             log.info("Silences : %d mot(s) à l'horodatage étiré corrigé(s)", nfix)
     sents = sentences(words)
     log.info("Transcription : %d mots, %d phrases, langue %s", len(words), len(sents), lang)
+
+    # 1b) chaîne : logo, nom, couleurs de l'habillage (dossier chaines/) — jamais bloquant
+    brand = {"notes": []}
+    chaine_why = ""
+    try:
+        from . import chaine as K
+        prof, chaine_why = K.choose(opts.get("chaine", "auto"), lang)
+        brand = K.prepare(prof, orient, work / "chaine") if opts.get("logo") != "non" else {"notes": [], "nom": ""}
+        brand["notes"] += K.apply_palette(prof, brand)
+        brand["profil"] = prof
+        log.info("Chaîne : %s%s", chaine_why, " · " + " ; ".join(brand["notes"]) if brand["notes"] else "")
+    except Exception as e:  # noqa: BLE001
+        brand = {"notes": [f"⚠ habillage de chaîne abandonné ({type(e).__name__}: {e}) : montage sans logo"]}
+        log.warning("%s", brand["notes"][0])
 
     # 2) pièces jointes + plan éditorial
     ai = AI()
@@ -299,37 +317,15 @@ def main(argv=None) -> int:
                 except Exception as e:  # noqa: BLE001
                     log.warning("carte article abandonnée : %s", e)
             finder_used = bool(m["inserts"] or m["articles"])
+            lot_info["contre"] = lot.get("contre") or []
             log.info("Vid-o-presse-finder : %d extrait(s) vidéo inséré(s), %d carte(s) déclaration, %d article(s)",
                      lot_info["video_ok"], lot_info["cards"], len(m["articles"]))
-    if opts["recherche_presse"] != "non" and plan["press"] and not finder_used:
-        used = set()
-        budget_end = time.time() + 25 * 60
-        for k, p in enumerate(plan["press"][:2]):
-            if time.time() > budget_end:
-                break
-            res = press_search(p, lang, work, minutes=9)
-            if len(inserts) < max_ins:
-                asset = press_clip(res, orient, work, k, lang, ai, maxd, used)
-                if asset:
-                    cr = asset["credit"]
-                    asset["source"] = f"{cr.get('title')} — {cr.get('source')} ({cr.get('url')})"
-                    inserts.append({"after": p["after"], "asset": asset})
-            arts = sorted(res.get("articles") or [], key=lambda r: -float(r.get("autorite") or 0))
-            for j, art in enumerate(arts[:1]):
-                if not art.get("titre"):
-                    continue
-                img = og_image(art.get("url", ""), work / "web" / f"og_{k}_{j}")
-                data = {"source": art.get("source") or art.get("domaine", ""), "date": _fmt_date(art.get("date", "")),
-                        "headline": art["titre"], "domain": art.get("domaine", ""),
-                        "image": open_image(img) if img else None}
-                s0 = max(0, min(p.get("s0", p["after"]), p["after"]))
-                v = {"kind": "article", "s0": s0, "s1": min(s0 + 1, p["after"]), "trigger": "", "priority": 1,
-                     "label": art["titre"][:60], "source": f"{art.get('source')} — {art.get('url')}"}
-                try:
-                    v["asset"] = render_panel("article", pw, ph, data, pdir, f"art{k}{j}")
-                    plan["visuals"].append(v)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("carte article abandonnée : %s", e)
+    # 4c) recherche PAR AFFIRMATION : chaque affirmation vérifiable de ta vidéo est cherchée (vidéos, presse, Telegram,
+    #     Reddit), en plus du lot Finder ; ce qui la contredit est listé à part dans PLAN.md (à anticiper)
+    press_info = None
+    if opts["recherche_presse"] != "non" and plan["press"]:
+        press_info = claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir,
+                                    int(opts.get("affirmations") or 6))
         ai.save_quota()
     # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
     mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
@@ -371,8 +367,17 @@ def main(argv=None) -> int:
             log.warning("mesure du niveau de ta voix impossible : %s", e)
     keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap,
                        voice_free=voice_free)
+    energy, voice_info = None, None
+    if opts.get("mise_en_scene") != "non" and info["audio"] and sents:
+        from .voix import analyse
+        energy, why = analyse(src, work, words, sents)
+        voice_info = {"why": why, "on": energy is not None}
+        log.info("Mise en scène : %s", why)
+    zstats: dict = {}
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
-                            opener=opener, sil=sil_all, voice_free=voice_free)
+                            opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats)
+    if voice_info is not None:
+        voice_info["stats"] = zstats
     if kw_info:  # mots-clés : extrait réellement placé ? (sinon la raison est notée)
         placed = {s.insert.get("kw"): s for s in segs if s.kind == "insert" and s.insert.get("kw") is not None}
         for it in kw_info["items"]:
@@ -427,13 +432,22 @@ def main(argv=None) -> int:
         emph = {x for w in emph for x in w.split() if len(x) > 2}
         sub.captions(words, segs, emph)
     if opts["fin"] != "non":
-        sub.outro(total, plan.get("outro") or C.ui(lang, "outro"), C.ui(lang, "sub"))
+        sub.outro(total, plan.get("outro") or C.ui(lang, "outro"), C.ui(lang, "sub"),
+                  logo=bool(brand.get("end_src")) and orient == "h")
+        try:
+            from .chaine import end_card
+            end_card(brand, getattr(sub, "outro_box", None), C.SIZE[orient][0], work / "chaine")
+        except Exception as e:  # noqa: BLE001
+            brand["notes"].append(f"grand logo de fin omis ({e})")
     ass_path = (work / "textes.ass").resolve()
     ass_path.write_text(sub.text(), encoding="utf-8")
 
     # 7) rendu
     fonts = Path(a.fonts).resolve() if Path(a.fonts).is_dir() else None
     ctx = Ctx(Path(vsrc).resolve(), vinfo, face, orient, work.resolve(), ass_path, fonts)
+    from . import render as R
+    R.BRAND = brand_check(brand, work / "chaine")
+    R.BRAND_FAILS.clear()
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
     aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", chap_times)
@@ -447,9 +461,132 @@ def main(argv=None) -> int:
                    subs_off=opts["sous_titres"] == "non")
     except Exception as e:  # noqa: BLE001
         qc = [(False, f"contrôle qualité impossible : {e}")]
+    if R.BRAND_FAILS:
+        brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
+    brand["why"] = chaine_why
     write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats,
-                 kw_info, rythme_info)
+                 kw_info, rythme_info, brand=brand, press_info=press_info, voice_info=voice_info)
     return 0
+
+
+def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir, n_max: int) -> dict:
+    """Une recherche Vid-o-presse-finder par affirmation (2 à la fois, budget total borné). Jamais bloquant :
+    chaque affirmation finit avec un statut lisible (trouvé, rien, déjà couvert, temps écoulé, erreur)."""
+    from concurrent.futures import ThreadPoolExecutor
+    info = {"claims": [], "contre": [], "social": {}}
+    placed = (lot_info or {}).get("placed") or {}
+    covered = [x.get("after", -9) for x in placed.get("inserts", [])] + [x.get("s0", -9) for x in placed.get("articles", [])]
+    todo = []
+    for p in plan["press"][:max(0, n_max)]:
+        it = {"p": p, "status": "", "video": False, "card": "", "found": (0, 0, 0)}
+        info["claims"].append(it)
+        if any(abs(p["after"] - c) <= 2 for c in covered):
+            it["status"] = "déjà couvert par le lot Vid-o-presse-finder"
+            continue
+        todo.append(it)
+    budget_end = time.time() + 32 * 60
+    results = {}
+    main_q = Path(os.environ.get("QF_QUOTA_FILE", "state/quota.json"))
+    ai.save_quota()               # point de départ commun des recherches parallèles (refusionnées ensuite)
+    qfiles = []
+
+    def go(k_it):
+        k, it = k_it
+        if time.time() > budget_end - 4 * 60:
+            return it, None
+        left = (budget_end - time.time()) / 60
+        qf = work / "press" / f"quota_{k}.json"
+        try:
+            qf.parent.mkdir(parents=True, exist_ok=True)
+            if main_q.exists():
+                qf.write_bytes(main_q.read_bytes())
+            qfiles.append(qf)
+        except OSError:
+            qf = None
+        return it, press_search(it["p"], lang, work, minutes=max(4.0, min(8.0, left - 3)), quota_file=qf)
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        for it, res in ex.map(go, enumerate(todo)):
+            results[id(it)] = res
+    try:   # quotas consommés par chaque recherche → état commun (les clés épuisées ne seront pas réessayées)
+        from quote_finder import quota as Q
+        merged = Q.merge(main_q, [f for f in qfiles if f.exists()])
+        st = Q.state()
+        st.data = merged.data
+        st.save()
+    except Exception as e:  # noqa: BLE001
+        log.warning("état des quotas des recherches non fusionné : %s", e)
+    used = set()
+    for k, it in enumerate(todo):
+        p, res = it["p"], results.get(id(it))
+        if res is None:
+            it["status"] = "⚠ temps imparti écoulé : non cherchée"
+            continue
+        for key, v in (res.get("social") or {}).items():
+            if key in ("telegram", "reddit") and (key not in info["social"] or str(v).startswith("⚠")):
+                info["social"][key] = v
+        arts = sorted(res.get("articles") or [], key=lambda r: -_num(r.get("autorite")))
+        posts = res.get("posts") or []
+        info["contre"] += [dict(a, claim=p) for a in arts if (a.get("position") or "") == "contre"]
+        info["contre"] += [dict(x, claim=p) for x in posts if x.get("position") == "contre"]
+        arts = [a for a in arts if (a.get("position") or "") != "contre" and a.get("titre")]
+        posts = [x for x in posts if x.get("position") != "contre"]
+        it["found"] = (len(res.get("clips") or []), len(arts), len(posts))
+        if res.get("error") and not any(it["found"]):
+            it["status"] = f"⚠ {res['error']}"
+            continue
+        n_other = sum(1 for i in inserts if not (i.get("attachment") or i.get("kw") is not None))
+        if n_other < max_ins and res.get("clips"):
+            asset = press_clip(res, orient, work, k, lang, ai, maxd, used)
+            if asset:
+                cr = asset["credit"]
+                asset["source"] = f"{cr.get('title')} — {cr.get('source')} ({cr.get('url')})"
+                inserts.append({"after": p["after"], "asset": asset})
+                it["video"] = True
+        card = arts[0] if arts else (posts[0] if posts else None)   # une carte par affirmation : presse d'abord
+        if card:
+            img = og_image(card.get("url", ""), work / "web" / f"og_c{k}")
+            data = {"source": card.get("source") or card.get("domaine", ""), "date": _fmt_date(card.get("date", "")),
+                    "headline": card["titre"], "domain": card.get("domaine", ""), "image": open_image(img) if img else None}
+            s0 = max(0, min(p.get("s0", p["after"]), p["after"]))
+            v = {"kind": "article", "s0": s0, "s1": min(s0 + 1, p["after"]), "trigger": "", "priority": 1,
+                 "label": card["titre"][:60], "source": f"{card.get('source')} — {card.get('url')}"}
+            try:
+                v["asset"] = render_panel("article", pw, ph, data, pdir, f"artc{k}")
+                plan["visuals"].append(v)
+                it["card"] = card.get("source") or ""
+            except Exception as e:  # noqa: BLE001
+                log.warning("carte abandonnée : %s", e)
+        it["status"] = ("✅ " + " + ".join(x for x in (("extrait vidéo" if it["video"] else ""),
+                                                         (f"carte ({it['card']})" if it["card"] else "")) if x)
+                        if (it["video"] or it["card"]) else "rien de solide trouvé")
+    log.info("Recherche par affirmation : %d affirmation(s), %d avec un extrait ou une carte, %d élément(s) contraires",
+             len(info["claims"]), sum(1 for i in info["claims"] if i["status"].startswith("✅")), len(info["contre"]))
+    return info
+
+
+def _num(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def brand_check(brand: dict, work: Path) -> dict | None:
+    """Essai éclair du logo avec ffmpeg avant le vrai rendu : s'il échoue, montage sans logo (et c'est écrit)."""
+    if not (brand.get("bug") or brand.get("end")):
+        return None
+    from .util import run
+    try:
+        work.mkdir(parents=True, exist_ok=True)
+        for k in ("bug", "end"):
+            if brand.get(k):
+                run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=black:s=320x240:d=0.2", "-loop", "1", "-t", "0.2", "-i",
+                     brand[k], "-filter_complex", "[0:v][1:v]overlay=10:10:format=auto,format=yuv420p[o]", "-map", "[o]",
+                     "-frames:v", "2", str(work / f"essai_{k}.mp4")], timeout=60)
+        return brand
+    except Exception as e:  # noqa: BLE001
+        brand["notes"].append(f"⚠ logo refusé par ffmpeg ({str(e)[-160:]}) : montage sans logo")
+        return None
 
 
 def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lang, maxd, avoid=None,
@@ -469,7 +606,7 @@ def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lan
     for o in occ:
         o["at"] = pause_after(words, sil, o["w1"], o.get("wait", 8.0))
         nxt = " ".join(w["w"] for w in words[o["w1"] + 1:o["w1"] + 6])
-        if o["at"] is None and o["phrase"].endswith("ça"):
+        if o["at"] is None and o.get("short", o["phrase"].endswith("ça")):
             # « écoutez ça va changer… » : tu continues ta phrase, ce n'est pas une annonce d'extrait
             info.setdefault("ignored", []).append({"t0": o["t0"], "text": f"{o['phrase']} {nxt}"})
             continue
@@ -587,8 +724,13 @@ def _fmt_date(d: str) -> str:
 
 
 def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None,
-                 pause_stats=None, kw_info=None, rythme_info=None):
+                 pause_stats=None, kw_info=None, rythme_info=None, brand=None, press_info=None, voice_info=None):
     L = []
+    qc = list(qc or [])
+    # logo manquant à l'écran = visible par le public → compte dans le verdict
+    for n_ in (brand or {}).get("notes") or []:
+        if n_.startswith("⚠") and "logo" in n_:
+            qc.append((False, n_.lstrip("⚠ ")))
     bad0 = [m for ok, m in (qc or []) if not ok]
     # 1re ligne = le verdict (c'est elle que tu regardes avant de publier ; reprise dans le titre de la release)
     L.append("# ✅ PRÊT À PUBLIER" if qc and not bad0 else "# ⚠ À VÉRIFIER AVANT DE PUBLIER")
@@ -616,6 +758,16 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                 L.append(f"- ⚠ {w.strip()}")
     except OSError:
         pass
+    if brand is not None:
+        b_on = "logo permanent" + (" + grand logo de fin" if brand.get("end") else "") if brand.get("bug") else "sans logo"
+        L.append(f"- 🎨 Habillage : {brand.get('why') or 'chaîne par défaut'} — {b_on}")
+        for n_ in brand.get("notes") or []:
+            L.append(f"  - {n_}")
+    if voice_info is not None:
+        st = voice_info.get("stats") or {}
+        L.append(f"- 🎬 Mise en scène par la voix : {voice_info['why']}"
+                 + (f" → {st.get('serre', 0)} plan(s) serré(s), {st.get('moyen', 0)} moyen(s), {st.get('large', 0)} large(s), "
+                    f"{st.get('punch', 0)} coupe(s) sur un ton qui monte" if voice_info.get("on") else ""))
     if plan.get("hook"):
         h0 = segs[0].dur if segs and segs[0].kind == "insert" and segs[0].insert.get("opener") else 0.0
         L.append(f"- Accroche ({tc(h0)} → {tc(h0 + 3.5)}) : « {plan['hook']} »")
@@ -677,6 +829,31 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             L.append("  ⚠ ce lot date de plus d'une semaine : relance Vid-o-presse-finder sur ton sujet avant le montage.")
     elif opts.get("finder") != "non":
         L.append("- Vid-o-presse-finder : aucun lot de résultats trouvé.")
+    if press_info is not None:
+        L.append(f"\n## 🔎 Recherche par affirmation ({len(press_info['claims'])})\n")
+        for it in press_info["claims"]:
+            p = it["p"]
+            when = tc(out_time(segs, sents[p["after"]]["t0"]) or 0) if 0 <= p["after"] < len(sents) else "?"
+            nv, na, ns = it["found"]
+            L.append(f"- {when} « {p['target']}{' — ' + p['claim'] if p.get('claim') else ''} » → {it['status']}"
+                     + (f" ({nv} vidéo(s), {na} article(s), {ns} message(s) trouvés)" if any(it["found"]) else ""))
+        soc = press_info.get("social") or {}
+        if soc:
+            L.append(f"- Telegram : {soc.get('telegram', '—')} · Reddit : {soc.get('reddit', '—')}")
+            for k_, v_ in soc.items():
+                if str(v_).startswith("⚠"):
+                    L.append(f"  - 🔧 À régler ({k_}, n'empêche pas de publier) : {str(v_).lstrip('⚠ ')}")
+    contre = list((press_info or {}).get("contre") or []) + list((lot_info or {}).get("contre") or [])
+    if contre:
+        L.append("\n## 🛡 Ce qui te contredit (à anticiper : réponds-y avant qu'on te le sorte en commentaire)\n")
+        seen_ = set()
+        for c in contre:
+            if c.get("url") in seen_:
+                continue
+            seen_.add(c.get("url"))
+            about = f" — sur « {c['claim']['target']} »" if isinstance(c.get("claim"), dict) else ""
+            L.append(f"- {c.get('source') or c.get('domaine', '')} ({_fmt_date(c.get('date', '')) or '?'}) : "
+                     f"{(c.get('titre') or '')[:160]} — {c.get('url')}{about}")
     if plan.get("title"):
         L.append(f"\n## Pour YouTube\n**Titre conseillé** : {plan['title']}\n")
         if plan.get("description"):

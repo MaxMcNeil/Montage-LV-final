@@ -184,7 +184,7 @@ def tighten_inserts(pts: list, keep: list, words: list, sil: list, voice_free=No
 
 
 def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None,
-             sil=None, voice_free=None) -> tuple[list, list]:
+             sil=None, voice_free=None, energy=None, stats=None) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -305,7 +305,9 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         else:
             log.warning("extrait prévu à %.2f s non placé (aucune frontière à cet instant)", t)
     # 5) zooms de relance dans les plans pleins : changement à chaque coupe et toutes les ~7 s
-    _zooms(segs, sents, orient)
+    zs = _zooms(segs, sents, orient, energy)
+    if stats is not None:
+        stats.update(zs)
     # plans pleins très longs : découpés en blocs (≤ 10 morceaux) pour garder chaque rendu léger — invisible à l'écran
     split_segs = []
     for s in segs:
@@ -338,33 +340,83 @@ def _snap(t: float, keep: list) -> float | None:
     return None
 
 
-def _zooms(segs, sents, orient):
+def _zooms(segs, sents, orient, energy=None):
+    """Plans (zooms) des passages plein cadre. Sans analyse de la voix : alternance large / serré aux fins de phrase
+    toutes les ~7 s. Avec (energy, voir voix.py) : plan serré quand le ton monte (coupe au début de la phrase), large
+    quand il est posé, moyen sinon ; coupes plus fréquentes quand le débit s'accélère. Retourne des statistiques."""
     zin = 1.12 if orient == "h" else 1.08
+    stats = {"serre": 0, "large": 0, "moyen": 0, "punch": 0}
     ends = [s["t1"] for s in sents]
+    if energy and len(energy) != len(sents):
+        energy = None
+    tight = 1.18 if orient == "h" else 1.12
+    mids = (1.08, 1.12) if orient == "h" else (1.05, 1.08)
+
+    def sent_at(t):
+        for k, x in enumerate(sents):
+            if x["t0"] - 0.05 <= t <= x["t1"] + 0.05:
+                return k
+        return None
     for si, s in enumerate(segs):
         if s.kind != "full":
             continue
-        # sous-découpe aux fins de phrase toutes les ~7 s (en plus des coupes de silence)
         new = []
         for at in s.atoms:
             cur, last = at.a, at.a
-            for e in ends:
-                if cur + 6.5 < e < at.b - 2.5 and e - last >= 6.5:
-                    t = q(e + 0.1)
-                    new.append(Atom(cur, t))
-                    cur = last = t
+            if energy:
+                cuts = []
+                for k, x in enumerate(sents):
+                    gap = 4.5 if energy[k]["fast"] else 6.5
+                    e = x["t1"]
+                    if cur + gap < e < at.b - 2.5 and e - last >= gap:
+                        cuts.append(q(e + 0.1))
+                        last = q(e + 0.1)
+                    st = x["t0"]   # ton qui monte : coupe (plan serré) au début de la phrase
+                    if energy[k]["z"] >= 1.2 and cur + 2.5 < st < at.b - 2.0 and st - last >= 2.5:
+                        cuts.append(q(st - 0.05))
+                        last = q(st - 0.05)
+                        stats["punch"] += 1
+                for t in sorted(set(cuts)):
+                    if t - cur >= 1.2:
+                        new.append(Atom(cur, t))
+                        cur = t
+            else:
+                for e in ends:
+                    if cur + 6.5 < e < at.b - 2.5 and e - last >= 6.5:
+                        t = q(e + 0.1)
+                        new.append(Atom(cur, t))
+                        cur = last = t
             new.append(Atom(cur, at.b))
         s.atoms = new
         n = len(new)
-        for k, at in enumerate(new):
-            at.zoom = zin if k % 2 == 1 else 1.0
+        if energy:
+            prev, mi = None, 0
+            for at in new:
+                k = sent_at(at.a + 0.2)
+                z = energy[k]["z"] if k is not None else 0.0
+                if z >= 1.2:
+                    zz, kind = tight, "serre"
+                elif z <= -0.9:
+                    zz, kind = 1.0, "large"
+                else:
+                    zz, kind = mids[mi % 2], "moyen"
+                    mi += 1
+                if prev is not None and abs(zz - prev) < 0.03:   # jamais deux fois le même plan de suite
+                    zz, kind = (1.0, "large") if zz > 1.0 else (mids[mi % 2], "moyen")
+                at.zoom = zz
+                stats[kind] += 1
+                prev = zz
+        else:
+            for k, at in enumerate(new):
+                at.zoom = zin if k % 2 == 1 else 1.0
         # bords collés à un média ou un extrait : plan large (transition propre)
         if si > 0 and segs[si - 1].kind != "full":
             new[0].zoom = 1.0
         if si + 1 < len(segs) and segs[si + 1].kind != "full" and n:
             new[-1].zoom = 1.0
-            if n >= 2 and new[-2].zoom == 1.0 and new[-1].b - new[-1].a < 2.0:
+            if n >= 2 and abs(new[-2].zoom - 1.0) < 0.03 and new[-1].b - new[-1].a < 2.0:
                 new[-2].zoom = zin
+    return stats
 
 
 def out_time(segs: list, t_src: float) -> float | None:

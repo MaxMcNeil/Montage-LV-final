@@ -55,7 +55,12 @@ def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 16, max_article
                         arts.append(r)
         except OSError:
             continue
-    arts.sort(key=lambda r: -float(r.get("autorite") or 0))
+    arts.sort(key=lambda r: -_f(r.get("autorite")))
+    posts, contre = read_posts(lot.glob("*/posts.csv")), []
+    contre = [a for a in arts if (a.get("position") or "").strip() == "contre"] + [p for p in posts if p.get("position") == "contre"]
+    arts = [a for a in arts if (a.get("position") or "").strip() != "contre"]
+    # messages Telegram / Reddit : après les articles de presse (moins d'autorité), présentés comme des articles
+    arts += [p for p in posts if p.get("position") != "contre"][:4]
     m = LOT_RE.match(lot.name)
     age = None
     try:
@@ -73,7 +78,37 @@ def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 16, max_article
     log.info("Vid-o-presse-finder : lot %s (%s jour(s)) — %d extrait(s), %d article(s) — %s", lot.name, age, len(clips),
              len(arts), "; ".join(searches))
     return {"lot": lot.name, "age_days": age, "clips": clips[:max_clips], "articles": arts[:max_articles],
-            "searches": searches, "origine": origine}
+            "searches": searches, "origine": origine, "contre": contre[:12]}
+
+
+def _f(v) -> float:
+    try:
+        return float(v or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def read_posts(files) -> list[dict]:
+    """posts.csv (Telegram / Reddit) → lignes au format des articles (titre, source, url, date, autorite, position)."""
+    out, seen = [], set()
+    for f in sorted(files):
+        try:
+            with open(f, encoding="utf-8-sig") as fh:
+                for r in csv.DictReader(fh):
+                    url, txt = (r.get("url") or "").strip(), " ".join((r.get("texte") or "").split())
+                    if not url or not txt or url in seen:
+                        continue
+                    seen.add(url)
+                    plat = (r.get("plateforme") or "").strip().lower()
+                    out.append({"titre": txt[:150] + ("…" if len(txt) > 150 else ""), "url": url,
+                                "source": f"{'Telegram' if plat == 'telegram' else 'Reddit'} · {r.get('chaine') or ''}".strip(" ·"),
+                                "domaine": "t.me" if plat == "telegram" else "reddit.com", "date": r.get("date") or "",
+                                "autorite": "0.3", "position": (r.get("position") or "").strip(), "social": plat,
+                                "audience": _f(r.get("audience"))})
+        except (OSError, csv.Error):
+            continue
+    out.sort(key=lambda r: -r["audience"])
+    return out
 
 
 def _origine(lot: Path) -> dict:

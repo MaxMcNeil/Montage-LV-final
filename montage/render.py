@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import threading
 import wave
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -74,6 +75,12 @@ class Ctx:
         return f"setpts=PTS+{off:.4f}/TB,ass=filename='{self.ass}'{fd},setpts=PTS-STARTPTS,format=yuv420p"
 
 
+# Habillage de chaîne (montage/chaine.py) : {"bug", "bug_xy", "end", "end_xy", "end_t0"} — None = aucun logo.
+BRAND: dict | None = None
+BRAND_FAILS: list = []          # segments rendus SANS logo après un échec (signalés dans PLAN.md)
+_TL = threading.local()         # par fil de rendu : t0 = début du segment dans la vidéo finale, off = logo désactivé
+
+
 class Graph:
     def __init__(self):
         self.inputs: list[list[str]] = []
@@ -86,7 +93,34 @@ class Graph:
     def add(self, s: str):
         self.lines.append(s)
 
+    def _brand(self, label: str, n: int) -> str:
+        """Ajoute le petit logo permanent (et le grand logo de fin) par-dessus l'image finale du segment."""
+        b = BRAND
+        if not b or getattr(_TL, "off", False) or not (b.get("bug") or b.get("end")):
+            return label
+        t0 = getattr(_TL, "t0", None)
+        d = n / FPS
+        cur = label
+        end_rel = (b["end_t0"] - t0) if (b.get("end") and t0 is not None and b.get("end_t0") is not None) else None
+        if end_rel is not None and end_rel >= d:
+            end_rel = None                       # la carte de fin n'est pas dans ce segment
+        if b.get("bug"):
+            i = self.inp("-loop", "1", "-framerate", FPS, "-t", f"{d + 1:.3f}", "-i", b["bug"])
+            x, y = b["bug_xy"]
+            en = f":enable='lt(t,{max(0.0, end_rel):.3f})'" if end_rel is not None else ""
+            self.add(f"[{cur}][{i}:v]overlay=x={x}:y={y}:format=auto{en},format=yuv420p[brand1]")
+            cur = "brand1"
+        if end_rel is not None:
+            i = self.inp("-loop", "1", "-framerate", FPS, "-t", f"{d + 1:.3f}", "-i", b["end"])
+            x, y = b["end_xy"]
+            st = max(0.0, end_rel)
+            self.add(f"[{i}:v]format=rgba,fade=t=in:st={st:.3f}:d=0.5:alpha=1[brandl]")
+            self.add(f"[{cur}][brandl]overlay=x={x}:y={y}:format=auto:enable='gte(t,{st:.3f})',format=yuv420p[brand2]")
+            cur = "brand2"
+        return cur
+
     def run(self, out: Path, n: int, label: str, script: Path):
+        label = self._brand(label, n)
         script.write_text(";\n".join(self.lines), encoding="utf-8")
         cmd = ["ffmpeg", "-y"]
         for i in self.inputs:
@@ -248,8 +282,18 @@ def render_video(segs, ctx: Ctx, out: Path, workers: int = 2) -> Path:
 
     def go(job):
         fn, args, f = job
+        _TL.t0, _TL.off = args[0].out0, False
         try:
-            fn(*args)
+            try:
+                fn(*args)
+            except Exception as e:  # noqa: BLE001
+                if not BRAND:
+                    raise
+                # le logo ne doit jamais coûter un segment : nouvel essai sans logo (signalé dans PLAN.md)
+                log.warning("segment %s : échec avec le logo → nouvel essai sans logo : %s", f.name, str(e)[-300:])
+                _TL.off = True
+                fn(*args)
+                BRAND_FAILS.append(f.name)   # réussi sans logo : c'était bien le logo
         except Exception as e:  # noqa: BLE001
             s = args[0]
             if s.kind == "full":

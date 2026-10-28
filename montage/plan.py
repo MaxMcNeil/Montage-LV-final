@@ -62,8 +62,10 @@ Décide :
    [{{"attachment": "id", "after": numéro de la phrase après laquelle on l'insère (quand l'auteur vient d'en parler ou
    de l'annoncer), "clip_start": seconde de début dans la vidéo jointe, "clip_end": seconde de fin}}]. L'extrait dure
    au plus {max_insert} s, commence et finit sur une phrase complète de la vidéo jointe.
-6. "press" : au plus {max_press} recherches de déclarations officielles en vidéo ou d'articles de presse sérieux qui
-   APPUIENT précisément ce que dit l'auteur (une déclaration qu'il cite, un fait d'actualité qu'il commente) :
+6. "press" : les AFFIRMATIONS VÉRIFIABLES les plus fortes de l'auteur (au plus {max_press}, les plus importantes
+   d'abord) : une déclaration qu'il cite, un fait d'actualité, un chiffre, une décision. Chacune sera cherchée en
+   vidéo, dans la presse et sur les réseaux pour l'APPUYER (et repérer ce qui la contredit). Pas d'opinions ni de
+   généralités invérifiables :
    [{{"target": "personne, pays, entité ou sujet", "claim": "ce qui aurait été dit ou fait (quelques mots)",
    "type": "personne|pays|entite|sujet", "after": phrase après laquelle insérer l'extrait vidéo trouvé,
    "s0": première phrase où l'auteur en parle, "langs": "codes de langues des sources probables, ex. fr,en"}}].
@@ -103,7 +105,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
         attachments=describe_attachments(att), notes=(notes or "(aucune)")[:2000],
         chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
         max_insert=opts.get("duree_max_insert", 25),
-        max_press=(0 if opts.get("recherche_presse") == "non" else 2))
+        max_press=_max_press(opts))
     if not ai or not ai.ok:
         return fallback(sents, att)
     j = ai.json(prompt)
@@ -118,12 +120,21 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
             attachments=describe_attachments(short), notes=(notes or "(aucune)")[:800],
             chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
             max_insert=opts.get("duree_max_insert", 25),
-            max_press=(0 if opts.get("recherche_presse") == "non" else 2))
+            max_press=_max_press(opts))
         j = ai.json(prompt)
     if not isinstance(j, dict):
         log.warning("Plan IA indisponible → plan minimal")
         return fallback(sents, att)
     return clean(j, sents, att)
+
+
+def _max_press(opts: dict) -> int:
+    if opts.get("recherche_presse") == "non":
+        return 0
+    try:
+        return max(0, min(12, int(opts.get("affirmations") or 6)))
+    except ValueError:
+        return 6
 
 
 def _int(v, default=None):

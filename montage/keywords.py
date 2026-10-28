@@ -1,7 +1,10 @@
 """Montage par mots-clés (option « mots_cles », activée par défaut).
 
-Chaque fois que tu prononces EXACTEMENT l'une de ces phrases :
-    écoutez ça · écoutez-moi ça · écoutez ce qu'il dit · écoutez ce qu'elle dit · écoutez ce qu'ils disent
+Chaque fois que tu prononces EXACTEMENT l'une de ces phrases (4 langues, quelle que soit la langue de la vidéo) :
+    fr : écoutez ça · écoutez-moi ça · écoutez ce qu'il dit · écoutez ce qu'elle dit · écoutez ce qu'ils disent
+    it : ascoltate questo · ascoltate qua · ascoltate cosa dice · ascoltate cosa dicono · sentite questo · sentite cosa dice…
+    en : listen to this · listen to what he says · listen to what she says · listen to what they say
+    ar : اسمعوا هذا · اسمعوا هذه · اسمعوا هذا الكلام · اسمعوا ماذا يقول · اسمعوا ماذا تقول · اسمعوا ماذا يقولون…
 un passage de ta (tes) vidéo(s) jointe(s) est inséré juste après, dans ton silence (jamais pendant que tu parles).
 
 Fiabilité :
@@ -19,14 +22,42 @@ from .util import norm, q, tc
 
 log = logging.getLogger("montage.keywords")
 
-PHRASES = {
-    ("ecoutez", "ca"): "écoutez ça",
-    ("ecoutez", "moi", "ca"): "écoutez-moi ça",
-    ("ecoutez", "ce", "qu", "il", "dit"): "écoutez ce qu'il dit",
-    ("ecoutez", "ce", "qu", "elle", "dit"): "écoutez ce qu'elle dit",
-    ("ecoutez", "ce", "qu", "ils", "disent"): "écoutez ce qu'ils disent",
-    ("ecoutez", "ce", "qu", "elles", "disent"): "écoutez ce qu'ils disent",   # même prononciation que « ils disent »
+_AR_FIX = str.maketrans({"ى": "ي", "ة": "ه", "ؤ": "و", "ئ": "ي"})
+
+
+def _kn(text: str) -> list[str]:
+    """Jetons comparables : accents, casse, ponctuation, variantes d'écriture arabe (ى/ي, ة/ه, hamza)."""
+    return norm(text).translate(_AR_FIX).split()
+
+
+# phrase prononcée → texte affiché. « courte » = l'annonce se termine par « ça / this / questo / هذا » : la pause
+# doit suivre tout de suite (sinon c'est une phrase qui continue : « écoutez ça va changer »)
+_RAW = {
+    # français (inchangé)
+    "écoutez ça": "écoutez ça", "écoutez-moi ça": "écoutez-moi ça",
+    "écoutez ce qu'il dit": "écoutez ce qu'il dit", "écoutez ce qu'elle dit": "écoutez ce qu'elle dit",
+    "écoutez ce qu'ils disent": "écoutez ce qu'ils disent", "écoutez ce qu'elles disent": "écoutez ce qu'ils disent",
+    # italien
+    "ascoltate questo": "ascoltate questo", "ascoltate qua": "ascoltate qua", "ascoltate qui": "ascoltate qui",
+    "ascoltate cosa dice": "ascoltate cosa dice", "ascoltate cosa dicono": "ascoltate cosa dicono",
+    "ascoltate che cosa dice": "ascoltate cosa dice", "ascoltate che cosa dicono": "ascoltate cosa dicono",
+    "ascoltate quello che dice": "ascoltate quello che dice", "ascoltate quello che dicono": "ascoltate quello che dicono",
+    "sentite questo": "sentite questo", "sentite qua": "sentite qua", "sentite cosa dice": "sentite cosa dice",
+    "sentite cosa dicono": "sentite cosa dicono", "sentite che cosa dice": "sentite cosa dice",
+    # anglais
+    "listen to this": "listen to this", "listen to what he says": "listen to what he says",
+    "listen to what she says": "listen to what she says", "listen to what they say": "listen to what they say",
+    "listen to what he's saying": "listen to what he's saying", "listen to what she's saying": "listen to what she's saying",
+    "listen to what they're saying": "listen to what they're saying",
+    # arabe (écrit avec ou sans hamza / alif final : la transcription varie)
+    "اسمعوا هذا": "اسمعوا هذا", "اسمعو هذا": "اسمعوا هذا", "اسمعوا هذه": "اسمعوا هذه",
+    "اسمعوا هذا الكلام": "اسمعوا هذا الكلام", "اسمعوا ماذا يقول": "اسمعوا ماذا يقول",
+    "اسمعوا ماذا تقول": "اسمعوا ماذا تقول", "اسمعوا ماذا يقولون": "اسمعوا ماذا يقولون",
+    "اسمعوا ما يقول": "اسمعوا ما يقول", "اسمعوا ما تقول": "اسمعوا ما تقول", "اسمعوا ما يقولون": "اسمعوا ما يقولون",
+    "اسمعوا ما يقوله": "اسمعوا ما يقوله", "اسمعوا ما تقوله": "اسمعوا ما تقوله",
 }
+SHORT_END = {"ca", "this", "questo", "qua", "qui", "هذا", "هذه"}
+PHRASES = {tuple(_kn(k)): v for k, v in _RAW.items()}
 MAX_WAIT = 8.0      # « écoutez ce qu'il dit (à propos de…) » : la pause peut venir un peu plus loin
 MAX_WAIT_CA = 1.2   # « écoutez ça » : la pause suit tout de suite (sinon « écoutez ça va… » n est pas une annonce)
 PUNCT = __import__("re").compile(r"[,;:.!?…]['\"»”)]*$")
@@ -36,7 +67,7 @@ def find_occurrences(words: list) -> list[dict]:
     """Occurrences exactes des phrases, dans l'ordre. Une occurrence plus longue l'emporte (« écoutez-moi ça »)."""
     toks = []  # (token, index du mot)
     for k, w in enumerate(words):
-        for t in norm(w["w"]).split():
+        for t in _kn(w["w"]):
             toks.append((t, k))
     seq = [t for t, _ in toks]
     out, i = [], 0
@@ -49,8 +80,9 @@ def find_occurrences(words: list) -> list[dict]:
             if any(PUNCT.search(words[k]["w"]) for k in range(k0, k1)):
                 i += 1
                 continue
+            short = hit[-1] in SHORT_END
             out.append({"phrase": PHRASES[hit], "w0": k0, "w1": k1, "t0": words[k0]["t0"], "t1": words[k1]["t1"],
-                        "wait": MAX_WAIT_CA if hit[-1] == "ca" else MAX_WAIT})
+                        "wait": MAX_WAIT_CA if short else MAX_WAIT, "short": short})
             i += len(hit)
         else:
             i += 1

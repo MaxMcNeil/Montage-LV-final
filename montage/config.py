@@ -136,8 +136,12 @@ DEFAULTS = {
     "langue": "auto",               # auto | fr | ar | it | en ...
     "silences_longs": "oui",        # oui : tout silence de plus de 2 s est raccourci (avec effet doux selon ta position)
     "rythme": "oui",                # oui : 5 premières min → un extrait au moins toutes les 60 s ; ensuite toutes les 2 min
-    "mots_cles": "oui",             # oui : après « écoutez ça / écoutez ce qu'il dit… », un passage de ta vidéo jointe
+    "mots_cles": "oui",             # oui : après « écoutez ça / ascoltate questo / listen to this / اسمعوا هذا… », un passage de ta vidéo jointe
     "ouverture_choc": "oui",        # oui : la vidéo commence par le passage le plus fort de ta vidéo jointe
                                     # (aucune vidéo jointe → la vidéo commence normalement, comme « non »)
     "finder": "dernier",            # dernier | non | <nom d'un lot> : résultats de Vid-o-presse-finder à monter
+    "affirmations": "6",            # affirmations de ta vidéo cherchées une par une (vidéos, presse, Telegram, Reddit) ; 0 = aucune
+    "chaine": "auto",               # auto (langue de la vidéo) | fr | ar | it | en… (dossier chaines/) | non
+    "logo": "oui",                  # oui : petit logo permanent + grand logo sur la carte de fin
+    "mise_en_scene": "oui",         # oui : plans (zooms) choisis selon ta voix (ton qui monte = plan serré) et ton débit
 }
