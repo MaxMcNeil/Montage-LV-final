@@ -72,6 +72,11 @@ Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vi
   nombre ; `0` = aucune) : TOUTES les affirmations vérifiables de ta vidéo sont cherchées une par une (vidéos, presse, **Telegram**, **Reddit**), même si le lot Finder est utilisé (sans
   refaire ce qu'il couvre déjà). PLAN.md liste chaque affirmation (trouvé / rien / pourquoi) et une section
   **🛡 Ce qui te contredit** : à anticiper dans ta vidéo.
+- **Rythme** (`rythme: oui` par défaut) : extraits vidéo, articles et photos comptent pareil. 5 premières minutes →
+  un élément au moins toutes les 60 s ; ensuite un environ toutes les 2 min (jamais plus de 2 min 15 sans rien), et
+  pas d'ajout automatique à moins de 1 min 30 du précédent. Tes « écoutez ça » et tes pièces jointes passent toujours.
+  Trou à remplir : passage de tes vidéos jointes, sinon article pas encore utilisé, sinon photo (la tienne, sinon photo
+  libre) — toujours cohérent et vérifié. Le contrôle qualité signale ⚠ tout trou de plus de 2 min 30 après 5 min.
 - **Voix studio chaude** (`voix_studio: oui`, **non** par défaut ; réglage « chaude max » choisi à l'écoute) :
   coupe des grondements, débruitage doux réglé sur le bruit de ta pièce, profondeur (graves de la voix), clarté
   et présence, dé-esseur, double compression façon radio, volume YouTube. Contrôlé : même durée à l'échantillon près,

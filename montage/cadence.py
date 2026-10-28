@@ -1,7 +1,13 @@
-"""Rythme des extraits (rétention d'audience) — option « rythme », activée par défaut.
+"""Rythme (rétention d'audience) — option « rythme », activée par défaut.
 
-Règle : pendant les 5 premières minutes, jamais plus de 60 s sans un extrait de tes vidéos jointes ; ensuite, jamais
-plus de 2 min. Là où ta vidéo n'en a pas assez (plan de l'IA, « écoutez ça », Vid-o-presse-finder…), un passage est
+ÉLÉMENT = extrait vidéo inséré, article ou photo à côté de toi : les trois comptent pareil.
+Règle : 5 premières minutes → au moins un élément toutes les 60 s ; ensuite → un élément environ toutes les 2 min
+(jamais plus de 2 min 15 sans rien) et pas d'élément AUTOMATIQUE à moins de 1 min 30 du précédent (rythme régulier).
+Passent toujours, même rapprochés : tes « écoutez ça » et tes pièces jointes (vidéos et photos).
+Pour remplir un trou, dans cet ordre : 1) un passage de tes vidéos jointes ; 2) un article (Finder / presse / Telegram
+/ Reddit) pas encore utilisé ; 3) une photo (tes photos jointes, sinon photo libre Wikimedia de la personne ou du lieu
+dont tu parles). Toujours COHÉRENT avec ce que tu dis là, confirmé par une 2e lecture indépendante.
+Détail de l'étape 1 (vidéos) : Là où ta vidéo n'en a pas assez (plan de l'IA, « écoutez ça », Vid-o-presse-finder…), un passage est
 ajouté — mais seulement s'il est COHÉRENT avec ce que tu dis à ce moment-là :
   - point d'insertion = un vrai silence confirmé par le son, à la fin d'une de tes phrases (jamais pendant que tu parles) ;
   - passage choisi par l'IA d'après ce que tu dis juste avant et juste après, puis 2e lecture indépendante qui vérifie ;
@@ -21,7 +27,10 @@ log = logging.getLogger("montage.cadence")
 
 FIRST = 300.0       # les 5 premières minutes…
 GAP1 = 60.0         # … un extrait au moins toutes les 60 s
-GAP2 = 120.0        # ensuite toutes les 2 min
+GAP2 = 120.0        # ensuite toutes les 2 min (cible)…
+GAP2_MAX = 135.0    # … jamais plus de 2 min 15 sans rien
+AUTO_SEP = 90.0     # après 5 min : pas d'élément automatique à moins de 1 min 30 du précédent
+QC_HOLE = 150.0     # contrôle qualité : ⚠ si un trou de plus de 2 min 30 reste après 5 min
 MIN_SEP = 25.0      # jamais deux extraits à moins de 25 s
 DMIN, DMAX = 6, 15  # durée d'un extrait de rythme
 MAX_ROUNDS = 6
@@ -109,12 +118,14 @@ def insert_time(ins: dict, words, sents, sil) -> float | None:
 
 
 def fill(ai, words: list, sents: list, att: list, inserts: list, used: dict, sil: list, lang: str, orient: str,
-         work: Path, opener: bool, prepare) -> dict:
+         work: Path, opener: bool, prepare, others: list | None = None) -> dict:
     """Ajoute des extraits de rythme dans `inserts`. `used` : {id vidéo: [(a, b), …]} passages déjà pris (mis à jour).
     `prepare(x, a, b, name)` prépare l'extrait (asset) ou renvoie None."""
     from .keywords import _ctx, _sents_in, _videos_text
     from .timeline import find_pause
-    info = {"added": [], "holes": [], "rule": "5 premières minutes : 60 s max entre deux extraits ; ensuite 2 min max"}
+    info = {"added": [], "holes": [], "cards": [], "thinned": [],
+            "rule": "5 premières minutes : un élément (extrait, article ou photo) au moins toutes les 60 s ; ensuite un "
+                    "environ toutes les 2 min (2 min 15 max), pas d'ajout automatique à moins de 1 min 30 du précédent"}
     vids = [x for x in att if x["kind"] == "video" and x.get("duration", 0) >= 3]
     if not sents or not words:
         return info
@@ -133,17 +144,19 @@ def fill(ai, words: list, sents: list, att: list, inserts: list, used: dict, sil
         if t is not None:
             cand.append({"i": s["i"], "t": t})
     lim = lambda t: GAP1 if t - t_start < FIRST else GAP2  # noqa: E731
+    sep = lambda t: MIN_SEP if t - t_start < FIRST else AUTO_SEP  # noqa: E731
+    others = sorted(others or [])
     failed: list[tuple] = []
     for rnd in range(MAX_ROUNDS):
-        pts = sorted(t for t in (insert_time(i, words, sents, sil) for i in inserts) if t is not None)
+        pts = sorted([t for t in (insert_time(i, words, sents, sil) for i in inserts) if t is not None] + others)
         pts = [t_start] + pts if opener else pts
         # créneaux : premier endroit de chaque trou où il faudrait un extrait
         slots = []
         prev = t_start if not pts or pts[0] > t_start else pts[0]
         for t in pts + [t_end]:
             cur = prev
-            while t - cur > lim(cur) + 5.0:          # un trou trop long : premier créneau encore possible
-                lo, hi = cur + MIN_SEP, cur + lim(cur)
+            while t - cur > lim(cur) + (5.0 if cur - t_start < FIRST else GAP2_MAX - GAP2):
+                lo, hi = cur + sep(cur), cur + lim(cur)   # trou trop long : premier créneau encore possible
                 if any(abs(lo - f0) < 1 and abs(hi - f1) < 1 for f0, f1 in failed):
                     cur = hi                             # créneau déjà tenté sans succès : on regarde plus loin
                     continue
@@ -261,3 +274,252 @@ def fill(ai, words: list, sents: list, att: list, inserts: list, used: dict, sil
     log.info("Rythme : %d extrait(s) ajouté(s), %d créneau(x) laissé(s) sans extrait", len(info["added"]),
              len(info["holes"]))
     return info
+
+
+# ------------------------------------------------------------------ éléments : extraits + articles + photos
+CARDS = """Tu es le monteur d'une vidéo face caméra (langue « {lang} ») pour un public de 40 ans et plus. Pour garder
+l'attention, il faut un élément visuel à certains moments. Pour chaque CRÉNEAU, choisis UN élément qui illustre
+précisément CE QUE L'AUTEUR DIT À CE MOMENT-LÀ (même fait, même personne, même lieu, même chiffre), et la phrase sur
+laquelle l'afficher (il apparaît à côté de l'auteur pendant qu'il parle).
+
+Ordre de préférence : 1) un ARTICLE / message de la liste ; 2) une PHOTO jointe ; 3) {wiki_rule}
+
+CRÉNEAUX :
+{slots}
+
+ARTICLES ET MESSAGES DISPONIBLES :
+{articles}
+
+PHOTOS JOINTES DISPONIBLES :
+{photos}
+
+Règles : un élément ne sert qu'une fois ; jamais hors sujet ; si rien n'est vraiment cohérent pour un créneau,
+"item": null (ne force jamais).
+Réponds en JSON : {{"fills": [{{"slot": n, "s": numéro de phrase, "item": "A3" | "P1" | "W" | null,
+"query": "pour W : nom exact de la personne / du lieu / de l'objet (sinon vide)", "why": "le lien, en une phrase"}}]}}"""
+
+VERIFY_CARD = """Vérification indépendante (langue « {lang} »). Chaque élément s'affiche à côté de l'auteur pendant qu'il
+dit la phrase indiquée. Est-il en rapport DIRECT avec ce qu'il dit (même fait / personne / lieu / chiffre) ? Sois
+exigeant : « dans le thème général » ne suffit pas.
+
+{cases}
+
+Réponds en JSON : {{"checks": [{{"n": numéro, "ok": true/false, "score": 0 à 10, "reason": "une phrase"}}]}}"""
+
+
+def visual_time(v: dict, sents: list) -> float | None:
+    try:
+        return float(sents[int(v["s0"])]["t0"])
+    except (KeyError, IndexError, TypeError, ValueError):
+        return None
+
+
+def elements(inserts: list, visuals: list, words: list, sents: list, sil: list) -> list[dict]:
+    """Tous les éléments prévus, triés : {"t", "kind" (video|card), "obj", "protected"}.
+    Protégés (jamais retirés) : tes « écoutez ça », tes vidéos jointes, tes photos jointes, l'ouverture choc."""
+    out = []
+    for i in inserts:
+        t = insert_time(i, words, sents, sil)
+        if t is not None:
+            out.append({"t": t, "kind": "video", "obj": i,
+                        "protected": i.get("kw") is not None or bool(i.get("attachment")) or bool(i.get("opener"))})
+    for v in visuals:
+        if not v.get("asset"):
+            continue
+        t = visual_time(v, sents)
+        if t is not None:
+            out.append({"t": t, "kind": "card", "obj": v, "protected": v.get("kind") == "attachment"})
+    return sorted(out, key=lambda e: e["t"])
+
+
+def holes(times: list, t_start: float, t_end: float, opener: bool) -> list[tuple[float, float]]:
+    """Fenêtres [lo, hi] où un élément manque (même règle que le remplissage vidéo)."""
+    pts = sorted(times)
+    prev = t_start
+    out = []
+    for t in pts + [t_end]:
+        cur = prev
+        while True:
+            first = cur - t_start < FIRST
+            lim, tol, sp = (GAP1, 5.0, MIN_SEP) if first else (GAP2, GAP2_MAX - GAP2, AUTO_SEP)
+            if t - cur <= lim + tol:
+                break
+            out.append((cur + sp, cur + lim))
+            cur = cur + lim
+        prev = max(prev, t)
+    return out
+
+
+def fill_cards(ai, words, sents, inserts, visuals, sil, lang, opener, pool: dict, make_visual, info: dict,
+               wiki: bool = True, rounds: int = 3) -> None:
+    """Étapes 2 et 3 : articles puis photos dans les trous restants. pool = {"articles": [...], "photos": [...]}
+    (chaque article : {"titre", "source", "url", …} ; chaque photo : pièce jointe image). make_visual(choix, s) crée
+    le visuel (avec son panneau) ou renvoie None. Jamais bloquant."""
+    if not sents:
+        return
+    t_start, t_end = sents[0]["t0"], sents[-1]["t1"]
+    arts = list(pool.get("articles") or [])
+    photos = list(pool.get("photos") or [])
+    used_a, used_p = set(), set()
+    tried: set = set()
+    for rnd in range(rounds):
+        times = [e["t"] for e in elements(inserts, visuals, words, sents, sil)]
+        hs = [h for h in holes(times, t_start, t_end, opener) if (round(h[0]), round(h[1])) not in tried]
+        if not hs:
+            return
+        if not ai or not getattr(ai, "ok", False):
+            for lo, hi in hs:
+                info["holes"].append({"t0": lo, "t1": hi, "why": "IA indisponible : aucun article ni photo ajouté"})
+            return
+        free_a = [k for k in range(len(arts)) if k not in used_a]
+        free_p = [k for k in range(len(photos)) if k not in used_p]
+        if not free_a and not free_p and not wiki:
+            for lo, hi in hs:
+                info["holes"].append({"t0": lo, "t1": hi, "why": "plus aucun article ni photo disponible"})
+            return
+        taken_s = {v.get("s0") for v in visuals}
+        slots = []
+        for lo, hi in hs[:MAX_SLOTS]:
+            ss = [x for x in sents if lo <= x["t0"] <= hi and x["i"] not in taken_s]
+            tried.add((round(lo), round(hi)))
+            if not ss:
+                info["holes"].append({"t0": lo, "t1": hi, "why": "aucune phrase libre à cet endroit"})
+                continue
+            slots.append({"lo": lo, "hi": hi, "ss": ss})
+        if not slots:
+            continue
+        txt = "\n".join(f"Créneau {n} ({tc(sl['lo'])} → {tc(sl['hi'])}) : " +
+                        " ".join(f"[{x['i']}] {x['text']}" for x in sl["ss"])[:1500] for n, sl in enumerate(slots))
+        a_txt = "\n".join(f"[A{k}] {arts[k].get('source') or ''} : {arts[k].get('titre') or ''}"[:260]
+                          for k in free_a[:60]) or "(aucun)"
+        p_txt = "\n".join(f"[P{k}] {photos[k].get('description') or photos[k].get('name')}"[:220]
+                          for k in free_p[:30]) or "(aucune)"
+        wiki_rule = ("une PHOTO LIBRE (Wikimedia) d'une personne, d'un lieu ou d'un objet NOMMÉ dans le créneau : "
+                     "item \"W\" + query" if wiki else "rien d'autre (pas de photo libre)")
+        j = ai.json(CARDS.format(lang=lang, wiki_rule=wiki_rule, slots=txt, articles=a_txt, photos=p_txt))
+        picks = (j or {}).get("fills") if isinstance(j, dict) else None
+        if not isinstance(picks, list):
+            for sl in slots:
+                info["holes"].append({"t0": sl["lo"], "t1": sl["hi"], "why": "IA indisponible"})
+            continue
+        chosen, seen_slot = [], set()
+        for p in picks:
+            try:
+                n, si = int(p.get("slot")), int(p.get("s"))
+                sl = slots[n]
+            except (TypeError, ValueError, IndexError):
+                continue
+            item = str(p.get("item") or "").strip().upper()
+            if n in seen_slot or not item or si not in {x["i"] for x in sl["ss"]}:
+                continue
+            c = {"slot": n, "s": si, "why": str(p.get("why") or "")[:200]}
+            if item.startswith("A") and item[1:].isdigit() and int(item[1:]) in free_a \
+                    and int(item[1:]) not in {x.get("a") for x in chosen}:
+                c.update(kind="article", a=int(item[1:]), label=arts[int(item[1:])].get("titre", ""))
+            elif item.startswith("P") and item[1:].isdigit() and int(item[1:]) in free_p \
+                    and int(item[1:]) not in {x.get("p") for x in chosen}:
+                c.update(kind="photo", p=int(item[1:]), label=photos[int(item[1:])].get("description") or "")
+            elif item == "W" and wiki and str(p.get("query") or "").strip():
+                c.update(kind="wiki", query=str(p["query"]).strip()[:80], label=str(p["query"]).strip()[:80])
+            else:
+                continue
+            seen_slot.add(n)
+            chosen.append(c)
+        if chosen:   # 2e lecture indépendante
+            cases = "\n\n".join(f"[{k}] PHRASE : « {sents[c['s']]['text'][:400]} »\n    ÉLÉMENT ({c['kind']}) : "
+                                f"« {c['label'][:300]} »" for k, c in enumerate(chosen))
+            chk = ai.json(VERIFY_CARD.format(lang=lang, cases=cases))
+            for ck in ((chk or {}).get("checks") or []) if isinstance(chk, dict) else []:
+                try:
+                    k = int(ck.get("n"))
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= k < len(chosen):
+                    chosen[k]["check"] = {"ok": bool(ck.get("ok")), "score": ck.get("score"),
+                                          "reason": str(ck.get("reason") or "")[:200]}
+        for c in chosen:
+            sl = slots[c["slot"]]
+            ck = c.get("check")
+            if ck is None:
+                info["holes"].append({"t0": sl["lo"], "t1": sl["hi"], "why": "vérification indisponible : rien ajouté"})
+                continue
+            if not ck["ok"]:
+                info["holes"].append({"t0": sl["lo"], "t1": sl["hi"],
+                                      "why": f"élément proposé refusé à la vérification ({ck['reason']})"})
+                continue
+            src = arts[c["a"]] if c["kind"] == "article" else photos[c["p"]] if c["kind"] == "photo" else None
+            try:
+                v = make_visual(c["kind"], src, c.get("query", ""), c["s"])
+            except Exception as e:  # noqa: BLE001
+                log.warning("élément de rythme abandonné : %s", e)
+                v = None
+            if not v:
+                info["holes"].append({"t0": sl["lo"], "t1": sl["hi"],
+                                      "why": f"{'photo libre introuvable' if c['kind'] == 'wiki' else 'image impossible'}"
+                                             f" pour « {c['label'][:60]} »"})
+                continue
+            v["rythme"] = True
+            v["source"] = f"RYTHME — {v.get('source', '')} — {c['why']} — vérifié ✅ ({ck.get('score')}/10)"
+            visuals.append(v)
+            if c["kind"] == "article":
+                used_a.add(c["a"])
+            elif c["kind"] == "photo":
+                used_p.add(c["p"])
+            info["cards"].append({"t": sents[c["s"]]["t0"], "kind": c["kind"], "label": c["label"][:90],
+                                  "why": c["why"], "check": ck})
+        for n, sl in enumerate(slots):
+            if n not in seen_slot and not any(abs(h["t1"] - sl["hi"]) < 1 for h in info["holes"]):
+                info["holes"].append({"t0": sl["lo"], "t1": sl["hi"],
+                                      "why": "aucun article ni photo vraiment cohérent avec ce que tu dis là"})
+
+
+def thin(inserts: list, visuals: list, words, sents, sil, info: dict) -> None:
+    """Après 5 min : pas d'élément AUTOMATIQUE à moins de 1 min 30 du précédent (rythme régulier, sans paquets).
+    Les éléments protégés (tes « écoutez ça », tes pièces jointes) passent toujours. Les retraits sont listés."""
+    if not sents:
+        return
+    t_start = sents[0]["t0"]
+    last = None
+    drop_ins, drop_vis = [], []
+    for e in elements(inserts, visuals, words, sents, sil):
+        if e["t"] - t_start < FIRST:
+            last = e["t"]
+            continue
+        if e["protected"] or last is None or e["t"] - last >= AUTO_SEP:
+            last = e["t"]
+            continue
+        (drop_ins if e["kind"] == "video" else drop_vis).append(e["obj"])
+        o = e["obj"]
+        lab = (o.get("asset") or {}).get("source") if e["kind"] == "video" else (o.get("label") or o.get("source"))
+        info.setdefault("thinned", []).append({"t": e["t"], "kind": e["kind"], "label": str(lab or "")[:100],
+                                               "gap": e["t"] - last})
+    if drop_ins:
+        inserts[:] = [i for i in inserts if not any(i is d for d in drop_ins)]
+    if drop_vis:
+        visuals[:] = [v for v in visuals if not any(v is d for d in drop_vis)]
+    if drop_ins or drop_vis:
+        log.info("Rythme : %d élément(s) automatique(s) retiré(s) (moins de 1 min 30 après le précédent)",
+                 len(drop_ins) + len(drop_vis))
+
+
+def qc_holes(segs: list, total: float, outro: float = 0.0) -> list[tuple[float, float]]:
+    """Trous de plus de 2 min 30 sans élément après les 5 premières minutes (vidéo finale)."""
+    starts, prev_panel = [], None
+    for s in segs:
+        if s.kind == "insert":
+            starts.append(s.out0)
+            prev_panel = None
+        elif s.kind == "split":
+            if s.panel is not prev_panel:
+                starts.append(s.out0)
+            prev_panel = s.panel
+        else:
+            prev_panel = None
+    end = max(0.0, total - outro)
+    out = []
+    prev = 0.0
+    for t in sorted(starts) + [end]:
+        if t > FIRST and t - max(prev, FIRST - GAP1) > QC_HOLE:
+            out.append((prev, t))
+        prev = max(prev, t)
+    return out

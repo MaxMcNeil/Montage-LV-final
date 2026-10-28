@@ -251,6 +251,7 @@ def main(argv=None) -> int:
     # 4b) résultats de Vid-o-presse-finder (dernier lot) placés selon ce que tu dis
     lot_info = None
     finder_used = False
+    spare_articles: list = []   # articles / messages trouvés mais pas encore affichés (réserve pour le rythme)
     if opts.get("finder", "dernier") != "non" and sents:
         try:
             lot = load_lot(Path(os.environ.get("VPF_DIR", "vpf")), opts.get("finder", "dernier"))
@@ -317,6 +318,8 @@ def main(argv=None) -> int:
                     log.warning("carte article abandonnée : %s", e)
             finder_used = bool(m["inserts"] or m["articles"])
             lot_info["contre"] = lot.get("contre") or []
+            placed_a = {x["article"] for x in m["articles"]}
+            spare_articles += [a_ for k_, a_ in enumerate(lot["articles"]) if k_ not in placed_a]
             log.info("Vid-o-presse-finder : %d extrait(s) vidéo inséré(s), %d carte(s) déclaration, %d article(s)",
                      lot_info["video_ok"], lot_info["cards"], len(m["articles"]))
     # 4c) recherche PAR AFFIRMATION : chaque affirmation vérifiable de ta vidéo est cherchée (vidéos, presse, Telegram,
@@ -325,6 +328,7 @@ def main(argv=None) -> int:
     if opts["recherche_presse"] != "non" and plan["press"]:
         press_info = claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir,
                                     len(plan["press"]), len(sents), info["duration"])
+        spare_articles += press_info.get("spare") or []
         ai.save_quota()
     # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
     mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
@@ -338,7 +342,7 @@ def main(argv=None) -> int:
     sil_all = merge(tr.get("silences") or [], quiet)
     rythme_info = None
     if opts.get("rythme") == "oui" and words:
-        from .cadence import fill
+        from .cadence import fill, fill_cards, thin, visual_time
 
         def _prep(x, a_, b_, name):
             s2 = x.get("sentences") or []
@@ -346,10 +350,55 @@ def main(argv=None) -> int:
             if asset_:
                 asset_["credit"] = {"label": label_for(x, a_, b_)}
             return asset_
-        try:
-            rythme_info = fill(ai, words, sents, att, inserts, used, sil_all, lang, orient, work, bool(opener), _prep)
+
+        def _visual(kind_, src_, query_, s_):
+            """Article / photo jointe / photo libre pour le rythme → visuel prêt (panneau rendu) ou None."""
+            k_ = len(plan["visuals"])
+            if kind_ == "article":
+                img_ = og_image(src_.get("url", ""), work / "web" / f"og_r{k_}")
+                data_ = {"source": src_.get("source") or src_.get("domaine", ""), "date": _fmt_date(src_.get("date", "")),
+                         "headline": src_["titre"], "domain": src_.get("domaine", ""),
+                         "image": open_image(img_) if img_ else None}
+                return {"kind": "article", "s0": s_, "s1": s_, "trigger": "", "priority": 2, "label": src_["titre"][:60],
+                        "source": f"{src_.get('source')} — {src_.get('url')}",
+                        "asset": render_panel("article", pw, ph, data_, pdir, f"artr{k_}")}
+            if kind_ == "photo":
+                lab_ = src_.get("label") or _pretty(src_["name"])
+                data_ = {"label": lab_, "sublabel": "", "text": "", "image": open_image(src_["path"]),
+                         "contain": src_.get("contain")}
+                if data_["image"] is None:
+                    return None
+                return {"kind": "attachment", "attachment": src_["id"], "s0": s_, "s1": s_, "trigger": "", "priority": 1,
+                        "label": lab_, "source": f"pièce jointe « {src_['name']} »",
+                        "asset": render_panel("attachment", pw, ph, data_, pdir, f"attr{k_}")}
+            img_ = wiki_image(query_, [lang, "en"], work / "web" / f"wiki_r{k_}")
+            if not img_:
+                return None
+            data_ = {"label": query_, "sublabel": "", "text": "", "image": open_image(img_["path"]),
+                     "credit": f"{C.ui(lang, 'photo')} : {img_['credit']}"}
+            return {"kind": "thing", "query": query_, "s0": s_, "s1": s_, "trigger": "", "priority": 2, "label": query_,
+                    "source": f"Wikimedia Commons — {img_['title']} ({img_['credit']})",
+                    "asset": render_panel("thing", pw, ph, data_, pdir, f"wikir{k_}")}
+        others = [t_ for t_ in (visual_time(v_, sents) for v_ in plan["visuals"] if v_.get("asset")) if t_ is not None]
+        try:   # 1) passages de tes vidéos jointes
+            rythme_info = fill(ai, words, sents, att, inserts, used, sil_all, lang, orient, work, bool(opener), _prep,
+                               others=others)
         except Exception as e:  # noqa: BLE001 - le rythme est un bonus : jamais bloquant
-            log.warning("rythme des extraits abandonné : %s", e)
+            log.warning("rythme (extraits) abandonné : %s", e)
+            rythme_info = {"added": [], "holes": [], "cards": [], "thinned": [], "rule": "rythme",
+                           "why": f"erreur interne ({type(e).__name__}) — montage fait sans"}
+        used_ph = {v_.get("attachment") for v_ in plan["visuals"]}
+        pool = {"articles": [x_ for x_ in spare_articles if x_.get("titre") and x_.get("url")],
+                "photos": [x_ for x_ in att if x_["kind"] == "image" and x_["id"] not in used_ph]}
+        try:   # 2) puis articles, 3) puis photos
+            fill_cards(ai, words, sents, inserts, plan["visuals"], sil_all, lang, bool(opener), pool, _visual,
+                       rythme_info, wiki=opts["images_web"] != "non")
+        except Exception as e:  # noqa: BLE001
+            log.warning("rythme (articles / photos) abandonné : %s", e)
+        try:   # après 5 min : pas d'ajout automatique à moins de 1 min 30 du précédent
+            thin(inserts, plan["visuals"], words, sents, sil_all, rythme_info)
+        except Exception as e:  # noqa: BLE001
+            log.warning("régularité du rythme non appliquée : %s", e)
 
     # 5) ligne de temps
     from .media import black_start
@@ -470,6 +519,15 @@ def main(argv=None) -> int:
                    subs_off=opts["sous_titres"] == "non")
     except Exception as e:  # noqa: BLE001
         qc = [(False, f"contrôle qualité impossible : {e}")]
+    if opts.get("rythme") == "oui":
+        try:
+            from .cadence import qc_holes
+            hs_ = qc_holes(segs, total, 5.5 if opts["fin"] != "non" else 0.0)
+            qc.append((not hs_, "rythme : aucun trou de plus de 2 min 30 après 5 min" if not hs_ else
+                       "rythme : " + ", ".join(f"rien entre {tc(a_)} et {tc(b_)}" for a_, b_ in hs_[:6])
+                       + " (voir « Rythme » plus bas : pourquoi)"))
+        except Exception as e:  # noqa: BLE001
+            log.warning("contrôle du rythme impossible : %s", e)
     if R.BRAND_FAILS:
         brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
     brand["why"] = chaine_why
@@ -576,6 +634,7 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
         s_free = [x for x in range(max(0, min(p.get("s0", p["after"]), p["after"])), min(n_sents, p["after"] + 4))
                   if x not in taken_s]
         cards_ = (arts + posts)[:min(4, len(s_free))]
+        info.setdefault("spare", []).extend((arts + posts)[len(cards_):])
         names = []
         for j_, card in enumerate(cards_):
             s0 = s_free[j_]
@@ -829,10 +888,18 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     if rythme_info is not None:
         ins_t = sorted(s.out0 for s in segs if s.kind == "insert" and not s.insert.get("opener"))
         first5 = sum(1 for t in ins_t if t < 300)
-        L.append(f"- Rythme des extraits ({rythme_info['rule']}) : {len(ins_t)} extrait(s) au total, dont {first5} dans les "
-                 f"5 premières minutes — {len(rythme_info['added'])} ajouté(s) pour tenir le rythme")
+        L.append(f"- Rythme ({rythme_info['rule']}) : {len(ins_t)} extrait(s) vidéo au total, dont {first5} dans les "
+                 f"5 premières minutes — ajoutés pour tenir le rythme : {len(rythme_info['added'])} extrait(s), "
+                 f"{len(rythme_info.get('cards') or [])} article(s) / photo(s)")
+        KIND_ = {"article": "article", "photo": "ta photo", "wiki": "photo libre"}
+        for c_ in rythme_info.get("cards") or []:
+            L.append(f"  - {tc(out_time(segs, c_['t']) or 0)} → {KIND_.get(c_['kind'], c_['kind'])} « {c_['label']} » : "
+                     f"{c_['why']} — vérifié ✅ ({(c_.get('check') or {}).get('score')}/10)")
+        for d_ in rythme_info.get("thinned") or []:
+            L.append(f"  - retiré pour garder un rythme régulier ({d_['gap']:.0f} s après l'élément précédent) : "
+                     f"{d_['label']}")
         if rythme_info.get("why"):
-            L.append(f"  - ⚠ rien ajouté : {rythme_info['why']}")
+            L.append(f"  - ⚠ aucun extrait vidéo ajouté : {rythme_info['why']}")
         placed_t = {round(s.insert.get("forced_t") or -1, 2) for s in segs if s.kind == "insert" and s.insert.get("rythme")}
         for r in rythme_info["added"]:
             ok_ = round(r["t"], 2) in placed_t
