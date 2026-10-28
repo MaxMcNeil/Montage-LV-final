@@ -87,6 +87,9 @@ Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vi
 - **Tes pièces jointes** : une vidéo jointe sans silence juste après le moment prévu est placée au silence d'une
   phrase voisine (jamais sur un mot). Une pièce jointe qui n'a pu être placée fait passer le verdict en **⚠** avec
   son nom et la raison.
+- **« Écoutez ça » sans vidéo jointe qui convienne** : le montage fait entendre à la place une déclaration trouvée par
+  le Finder ou la recherche par affirmation, si elle correspond EXACTEMENT à ce que tu annonces (choisie par l'IA, puis
+  vérifiée par une 2e lecture). Sinon rien, et PLAN.md dit pourquoi.
 - **Voix studio chaude** (`voix_studio: oui`, **non** par défaut ; réglage « chaude max » choisi à l'écoute) :
   coupe des grondements, débruitage doux réglé sur le bruit de ta pièce, profondeur (graves de la voix), clarté
   et présence, dé-esseur, double compression façon radio, volume YouTube. Contrôlé : même durée à l'échantillon près,

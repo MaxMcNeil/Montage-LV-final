@@ -266,6 +266,7 @@ def main(argv=None) -> int:
     lot_info = None
     finder_used = False
     spare_articles: list = []   # articles / messages trouvés mais pas encore affichés (réserve pour le rythme)
+    pool_clips: list = []       # déclarations vidéo trouvées (lot Finder + recherches) : repli des « écoutez ça »
     if opts.get("finder", "dernier") != "non" and sents:
         try:
             lot = load_lot(Path(os.environ.get("VPF_DIR", "vpf")), opts.get("finder", "dernier"))
@@ -332,6 +333,7 @@ def main(argv=None) -> int:
                     log.warning("carte article abandonnée : %s", e)
             finder_used = bool(m["inserts"] or m["articles"])
             lot_info["contre"] = lot.get("contre") or []
+            pool_clips += list(lot.get("clips") or [])
             placed_a = {x["article"] for x in m["articles"]}
             spare_articles += [a_ for k_, a_ in enumerate(lot["articles"]) if k_ not in placed_a]
             log.info("Vid-o-presse-finder : %d extrait(s) vidéo inséré(s), %d carte(s) déclaration, %d article(s)",
@@ -343,7 +345,14 @@ def main(argv=None) -> int:
         press_info = claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir,
                                     len(plan["press"]), len(sents), info["duration"])
         spare_articles += press_info.get("spare") or []
+        pool_clips += press_info.get("clips_pool") or []
         ai.save_quota()
+    # 4c-bis) « écoutez ça » sans passage de tes vidéos : extrait trouvé par le Finder / la presse, s'il correspond
+    if kw_info and pool_clips:
+        try:
+            kw_press_fallback(ai, words, sents, kw_info, inserts, pool_clips, orient, work, lang, maxd)
+        except Exception as e:  # noqa: BLE001 - un repli raté ne bloque jamais le montage
+            log.warning("repli « écoutez ça » par la presse abandonné : %s", e)
     # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
     mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
     other = [i for i in inserts if not (i.get("attachment") or i.get("kw") is not None)]
@@ -631,6 +640,7 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
         arts = [a for a in arts if (a.get("position") or "") != "contre" and a.get("titre")]
         posts = [x for x in posts if x.get("position") != "contre"]
         it["found"] = (len(res.get("clips") or []), len(arts), len(posts))
+        info.setdefault("clips_pool", []).extend(res.get("clips") or [])
         if res.get("error") and not any(it["found"]):
             it["status"] = f"⚠ {res['error']}"
             continue
@@ -729,6 +739,8 @@ def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lan
         item = {"n": n, "phrase": o["phrase"], "t0": o["t0"], "t1": o["t1"], "inserted": False}
         info["items"].append(item)
         t = o["at"]
+        if t is not None:
+            item["pending_t"], item["w1"] = t, o["w1"]      # repli possible : extrait trouvé par le Finder / la presse
         if not vids:
             item["why"] = "aucune vidéo jointe (release ou Drive)"
             continue
@@ -769,6 +781,121 @@ def keyword_inserts(ai, words, sents, att, inserts, tr, quiet, orient, work, lan
     log.info("Mots-clés : %d extrait(s) prêt(s) sur %d annonce(s) (%d « écoutez ça… » ignoré(s) : phrase qui continue)",
              len(kw), len(occ), len(info.get("ignored") or []))
     return info
+
+
+KW_PRESS = """Montage d'une vidéo face caméra (langue « {lang} »). À chaque ANNONCE ci-dessous, l'auteur dit « écoutez ça »
+(ou équivalent) : juste après, on doit faire entendre la déclaration qu'il annonce. Ses vidéos jointes n'ont rien de
+cohérent : choisis parmi les DÉCLARATIONS TROUVÉES (presse, chaînes officielles) celle qui correspond EXACTEMENT à ce
+qu'il annonce (même personne, même propos, même sujet). Jamais une déclaration seulement « dans le thème ».
+
+ANNONCES :
+{items}
+
+DÉCLARATIONS TROUVÉES :
+{clips}
+
+Une déclaration ne sert qu'une fois. Rien de vraiment cohérent → liste vide pour cette annonce.
+Réponds en JSON : {{"picks": [{{"n": numéro d'annonce, "clips": [numéros par ordre de préférence, 3 au plus],
+"why": "le lien, en une phrase"}}]}}"""
+
+KW_PRESS_CHECK = """Vérification indépendante (langue « {lang} »). L'auteur annonce « {phrase} » ; on fait entendre la
+déclaration ci-dessous. Est-ce bien CE QU'IL ANNONCE (même personne / même propos) ?
+AVANT l'annonce : « {before} »
+APRÈS : « {after} »
+DÉCLARATION : {who} — « {quote} »
+Réponds en JSON : {{"ok": true/false, "score": 0 à 10, "reason": "une phrase"}}"""
+
+
+def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, lang, maxd) -> None:
+    """« écoutez ça » sans passage de tes vidéos jointes → déclaration trouvée par le Finder / la recherche par
+    affirmation, choisie par l'IA PUIS vérifiée par une 2e lecture. Téléchargement impossible → candidat suivant.
+    Rien de cohérent → l'annonce reste sans extrait (et PLAN.md / le contrôle qualité le disent)."""
+    from .keywords import _ctx
+    pend = [it for it in kw_info["items"] if not it["inserted"] and it.get("pending_t") is not None]
+    if not pend or not ai or not getattr(ai, "ok", False):
+        return
+    seen, clips = set(), []
+    taken = {str((i.get("asset") or {}).get("credit", {}).get("url") or "") for i in inserts}
+    for c in pool:
+        key = (c.get("source_url"), round(float(c.get("start") or 0)))
+        if c.get("source_url") and c.get("verdict") != "denial" and key not in seen and c.get("source_url") not in taken:
+            seen.add(key)
+            clips.append(c)
+    clips = clips[:40]
+    if not clips:
+        return
+    items_txt = []
+    for it in pend:
+        bef, aft = _ctx(words, max(0, it["w1"] - 60), it["w1"], 90, 40)
+        items_txt.append(f"[{it['n']}] AVANT : … {bef}\n    APRÈS : {aft} …")
+    clips_txt = "\n".join(f"[{k}] {c.get('speaker') or '?'} — {c.get('channel') or c.get('platform') or ''} : "
+                           f"« {(c.get('quote') or '')[:300]} »" for k, c in enumerate(clips))
+    j = ai.json(KW_PRESS.format(lang=lang, items="\n".join(items_txt), clips=clips_txt))
+    picks = (j or {}).get("picks") if isinstance(j, dict) else None
+    if not isinstance(picks, list):
+        return
+    by_n = {it["n"]: it for it in pend}
+    used: set = set()
+    used_k: set = set()
+    # garde-fou temps : au plus 20 min pour ce repli, et jamais sur le temps gardé pour finir le montage
+    end_t = time.time() + 20 * 60
+    try:
+        t0_job = float(os.environ.get("JOB_T0") or 0)
+    except ValueError:
+        t0_job = 0.0
+    if t0_job:
+        end_t = min(end_t, t0_job + float(os.environ.get("MONTAGE_JOB_MINUTES", "340")) * 60 - 100 * 60)
+    for p in picks:
+        if time.time() > end_t:
+            for it in pend:
+                if not it["inserted"]:
+                    it["why"] = (it.get("why") or "") + " ; repli par la presse non tenté : temps gardé pour finir le montage"
+            log.warning("repli « écoutez ça » interrompu : temps gardé pour finir le montage")
+            break
+        try:
+            it = by_n.get(int(p.get("n")))
+        except (TypeError, ValueError):
+            continue
+        if not it or it["inserted"]:
+            continue
+        cands = []
+        for k in p.get("clips") or []:
+            try:
+                k = int(k)
+            except (TypeError, ValueError):
+                continue
+            if 0 <= k < len(clips) and k not in used_k:
+                cands.append(k)
+        for k in cands[:3]:
+            c = clips[k]
+            bef, aft = _ctx(words, max(0, it["w1"] - 60), it["w1"], 90, 40)
+            ck = ai.json(KW_PRESS_CHECK.format(lang=lang, phrase=it["phrase"], before=bef, after=aft,
+                                               who=f"{c.get('speaker') or '?'} ({c.get('channel') or ''})",
+                                               quote=(c.get("quote") or "")[:500]))
+            if not (isinstance(ck, dict) and ck.get("ok")):
+                it.setdefault("press_refused", []).append(str((ck or {}).get("reason") or "vérification négative")[:120]
+                                                          if isinstance(ck, dict) else "vérification indisponible")
+                continue
+            asset = clip_insert([c], orient, work, f"kwp{it['n']}_{k}", lang, ai, maxd, used)
+            if not asset:
+                it.setdefault("press_refused", []).append("vidéo non téléchargeable")
+                continue
+            cr = asset.get("credit") or {}
+            asset["source"] = (f"MOT-CLÉ « {it['phrase']} » — déclaration trouvée : {cr.get('title')} — "
+                               f"{cr.get('source')} ({cr.get('url')})")
+            s_i = next((x["i"] for x in sents if x["w0"] <= it["w1"] <= x["w1"]), 0)
+            inserts.append({"after": s_i, "asset": asset, "forced_t": it["pending_t"], "kw": it["n"]})
+            used_k.add(k)
+            it.update(inserted=True, at=it["pending_t"], video=f"{c.get('speaker') or 'déclaration'} — "
+                      f"{c.get('channel') or c.get('platform') or ''}", a=float(c.get("start") or 0),
+                      b=float(c.get("end") or 0), why=str(p.get("why") or "")[:200],
+                      check={"ok": True, "score": ck.get("score"), "reason": str(ck.get("reason") or "")[:200]},
+                      press=True)
+            log.info("Mot-clé « %s » : déclaration trouvée insérée (%s)", it["phrase"], it["video"])
+            break
+        if not it["inserted"] and it.get("press_refused"):
+            it["why"] = (it.get("why") or "") + " ; déclarations trouvées essayées mais refusées (" + \
+                "; ".join(it["press_refused"][:2]) + ")"
 
 
 OPENER_PROMPT = """Une vidéo face caméra (langue « {lang} ») doit commencer par une OUVERTURE CHOC : le passage le plus
