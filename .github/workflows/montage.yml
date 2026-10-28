@@ -61,6 +61,11 @@ on:
         type: choice
         options: [défaut, oui, non]
         default: défaut
+      voix_studio:
+        description: "Voix studio (clarté, débruitage doux, volume régulier) — contrôlée : repli sur ta voix normale au moindre doute"
+        type: choice
+        options: [non, oui]
+        default: non
       chaine:
         description: "Chaîne (logo, couleurs) : auto = selon la langue de la vidéo ; sinon dossier chaines/<code>"
         type: choice
@@ -245,6 +250,7 @@ jobs:
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
           MONTAGE_FINDER: ${{ inputs.finder || github.event.client_payload.finder }}
           MONTAGE_CHAINE: ${{ inputs.chaine }}
+          MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio }}
         run: |
           mkdir -p fonts state
           if [ -n "${YT_COOKIES:-}" ]; then printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/yt-cookies.txt"; export YT_COOKIES_FILE="$RUNNER_TEMP/yt-cookies.txt"; fi

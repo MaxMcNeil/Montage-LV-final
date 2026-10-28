@@ -72,6 +72,11 @@ Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vi
   nombre ; `0` = aucune) : TOUTES les affirmations vérifiables de ta vidéo sont cherchées une par une (vidéos, presse, **Telegram**, **Reddit**), même si le lot Finder est utilisé (sans
   refaire ce qu'il couvre déjà). PLAN.md liste chaque affirmation (trouvé / rien / pourquoi) et une section
   **🛡 Ce qui te contredit** : à anticiper dans ta vidéo.
+- **Voix studio chaude** (`voix_studio: oui`, **non** par défaut ; réglage « chaude max » choisi à l'écoute) :
+  coupe des grondements, débruitage doux réglé sur le bruit de ta pièce, profondeur (graves de la voix), clarté
+  et présence, dé-esseur, double compression façon radio, volume YouTube. Contrôlé : même durée à l'échantillon près,
+  aucune saturation ; au moindre doute → ta voix normale, et c'est écrit dans PLAN.md (ligne 🎙). Aucune IA, aucune
+  clé, le son des extraits n'est pas touché.
 - **Telegram** : secrets `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` — session **différente** de celle de
   Vid-o-presse-finder (Telegram détruit une session utilisée en même temps sur deux machines).
 

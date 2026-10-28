@@ -49,7 +49,7 @@ def options(path: str | None) -> dict:
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا", "aucun", "aucuns", "sans", "désactivé", "desactive", "désactivés", "nessuno"}
     for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs",
-              "mots_cles", "rythme", "logo", "mise_en_scene"):
+              "mots_cles", "rythme", "logo", "mise_en_scene", "voix_studio"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
@@ -449,6 +449,11 @@ def main(argv=None) -> int:
     R.BRAND_FAILS.clear()
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
+    audio_note = ""
+    if opts.get("voix_studio") == "oui" and info["audio"]:
+        from .voix_studio import apply as studio
+        main_wav, audio_note = studio(src, main_wav, work)
+        log.info("Voix : %s", audio_note)
     aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", chap_times)
     # « logo incrusté » écrit dans le fichier : Push-overlay (Shorts) n'ajoute alors pas un 2e petit logo
     tagc = ""
@@ -469,7 +474,7 @@ def main(argv=None) -> int:
         brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
     brand["why"] = chaine_why
     write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats,
-                 kw_info, rythme_info, brand=brand, press_info=press_info, voice_info=voice_info)
+                 kw_info, rythme_info, brand=brand, press_info=press_info, voice_info=voice_info, audio_note=audio_note)
     return 0
 
 
@@ -754,7 +759,8 @@ def _fmt_date(d: str) -> str:
 
 
 def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info=None, qc=None,
-                 pause_stats=None, kw_info=None, rythme_info=None, brand=None, press_info=None, voice_info=None):
+                 pause_stats=None, kw_info=None, rythme_info=None, brand=None, press_info=None, voice_info=None,
+                 audio_note=""):
     L = []
     qc = list(qc or [])
     # logo manquant à l'écran = visible par le public → compte dans le verdict
@@ -793,6 +799,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         L.append(f"- 🎨 Habillage : {brand.get('why') or 'chaîne par défaut'} — {b_on}")
         for n_ in brand.get("notes") or []:
             L.append(f"  - {n_}")
+    if audio_note:
+        L.append(f"- 🎙 {audio_note}")
     if voice_info is not None:
         st = voice_info.get("stats") or {}
         L.append(f"- 🎬 Mise en scène par la voix : {voice_info['why']}"

@@ -144,4 +144,5 @@ DEFAULTS = {
     "chaine": "auto",               # auto (langue de la vidéo) | fr | ar | it | en… (dossier chaines/) | non
     "logo": "oui",                  # oui : petit logo permanent + grand logo sur la carte de fin
     "mise_en_scene": "oui",         # oui : plans (zooms) choisis selon ta voix (ton qui monte = plan serré) et ton débit
+    "voix_studio": "non",           # oui : ta voix traitée façon studio (clarté, débruitage doux, volume régulier)
 }

@@ -25,8 +25,8 @@ VIDEO = (".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v", ".3gp", ".mts")
 IMAGE = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".heic", ".heif", ".avif")
 KEYS = ["couper_silences", "sous_titres", "recherche_presse", "max_inserts", "duree_max_insert", "images_web",
         "effets_sonores", "fin", "langue", "finder", "ouverture_choc", "silences_longs", "mots_cles", "rythme",
-        "affirmations", "chaine", "logo", "mise_en_scene"]
-ALIASES = {"channel": "chaine", "canale": "chaine", "claims": "affirmations", "affirmation": "affirmations", "cadence": "rythme", "rythme_extraits": "rythme", "retention": "rythme", "silences": "couper_silences", "coupe": "couper_silences", "sous-titres": "sous_titres", "subtitles": "sous_titres",
+        "affirmations", "chaine", "logo", "mise_en_scene", "voix_studio"]
+ALIASES = {"voix": "voix_studio", "studio": "voix_studio", "son_studio": "voix_studio", "channel": "chaine", "canale": "chaine", "claims": "affirmations", "affirmation": "affirmations", "cadence": "rythme", "rythme_extraits": "rythme", "retention": "rythme", "silences": "couper_silences", "coupe": "couper_silences", "sous-titres": "sous_titres", "subtitles": "sous_titres",
            "presse": "recherche_presse", "inserts": "max_inserts", "insertions": "max_inserts", "duree_insert": "duree_max_insert",
            "photos_web": "images_web", "effets": "effets_sonores", "sons": "effets_sonores", "carte_fin": "fin",
            "lang": "langue", "language": "langue", "lot": "finder", "vid_o_presse_finder": "finder",
