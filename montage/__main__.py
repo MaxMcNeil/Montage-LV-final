@@ -56,8 +56,7 @@ def options(path: str | None) -> dict:
     if o["couper_silences"] not in ("doux", "dynamique", "non"):
         o["couper_silences"] = "non" if o["couper_silences"] in no else C.DEFAULTS["couper_silences"]
     m = re.search(r"\d+", o.get("affirmations") or "")
-    o["affirmations"] = "0" if (o.get("affirmations") or "") in no else str(min(12, int(m.group(0)))) if m \
-        else C.DEFAULTS["affirmations"]
+    o["affirmations"] = "0" if (o.get("affirmations") or "") in no else str(min(30, int(m.group(0)))) if m else "auto"
     o["chaine"] = (o.get("chaine") or "auto").strip() or "auto"
     for k in ("max_inserts", "duree_max_insert"):
         m = re.search(r"\d+", o[k] or "")
@@ -325,7 +324,7 @@ def main(argv=None) -> int:
     press_info = None
     if opts["recherche_presse"] != "non" and plan["press"]:
         press_info = claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir,
-                                    int(opts.get("affirmations") or 6))
+                                    len(plan["press"]), len(sents))
         ai.save_quota()
     # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
     mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
@@ -451,7 +450,12 @@ def main(argv=None) -> int:
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
     aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", chap_times)
-    final = mux(vid, aud, outd / "montage-final.mp4")
+    # « logo incrusté » écrit dans le fichier : Push-overlay (Shorts) n'ajoute alors pas un 2e petit logo
+    tagc = ""
+    if R.BRAND and R.BRAND.get("bug") and len(R.BRAND_FAILS) < len(segs):
+        prof_ = brand.get("profil") or {}
+        tagc = f"montage-lv-final;logo={orient}-haut-droite;chaine={prof_.get('code', '')};langue={lang}"
+    final = mux(vid, aud, outd / "montage-final.mp4", comment=tagc)
     log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
 
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
@@ -469,7 +473,8 @@ def main(argv=None) -> int:
     return 0
 
 
-def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir, n_max: int) -> dict:
+def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir, n_max: int,
+                   n_sents: int = 10 ** 6) -> dict:
     """Une recherche Vid-o-presse-finder par affirmation (2 à la fois, budget total borné). Jamais bloquant :
     chaque affirmation finit avec un statut lisible (trouvé, rien, déjà couvert, temps écoulé, erreur)."""
     from concurrent.futures import ThreadPoolExecutor
@@ -484,7 +489,8 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
             it["status"] = "déjà couvert par le lot Vid-o-presse-finder"
             continue
         todo.append(it)
-    budget_end = time.time() + 32 * 60
+    # budget proportionnel au nombre d'affirmations (2 recherches à la fois, ~7 min chacune), plafonné à 2 h 30
+    budget_end = time.time() + min(150, 12 + 4.0 * len(todo)) * 60
     results = {}
     main_q = Path(os.environ.get("QF_QUOTA_FILE", "state/quota.json"))
     ai.save_quota()               # point de départ commun des recherches parallèles (refusionnées ensuite)
@@ -542,23 +548,30 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
                 asset["source"] = f"{cr.get('title')} — {cr.get('source')} ({cr.get('url')})"
                 inserts.append({"after": p["after"], "asset": asset})
                 it["video"] = True
-        card = arts[0] if arts else (posts[0] if posts else None)   # une carte par affirmation : presse d'abord
-        if card:
-            img = og_image(card.get("url", ""), work / "web" / f"og_c{k}")
+        # cartes : tous les articles solides (presse d'abord, puis Telegram / Reddit), chacun sur sa propre phrase,
+        # à partir du moment où tu en parles ; le placement final écarte ce qui se chevaucherait
+        taken_s = {v_.get("s0") for v_ in plan["visuals"]}
+        s_free = [x for x in range(max(0, min(p.get("s0", p["after"]), p["after"])), min(n_sents, p["after"] + 4))
+                  if x not in taken_s]
+        cards_ = (arts + posts)[:min(4, len(s_free))]
+        names = []
+        for j_, card in enumerate(cards_):
+            s0 = s_free[j_]
+            img = og_image(card.get("url", ""), work / "web" / f"og_c{k}_{j_}")
             data = {"source": card.get("source") or card.get("domaine", ""), "date": _fmt_date(card.get("date", "")),
                     "headline": card["titre"], "domain": card.get("domaine", ""), "image": open_image(img) if img else None}
-            s0 = max(0, min(p.get("s0", p["after"]), p["after"]))
-            v = {"kind": "article", "s0": s0, "s1": min(s0 + 1, p["after"]), "trigger": "", "priority": 1,
+            v = {"kind": "article", "s0": s0, "s1": s0, "trigger": "", "priority": 1,
                  "label": card["titre"][:60], "source": f"{card.get('source')} — {card.get('url')}"}
             try:
-                v["asset"] = render_panel("article", pw, ph, data, pdir, f"artc{k}")
+                v["asset"] = render_panel("article", pw, ph, data, pdir, f"artc{k}_{j_}")
                 plan["visuals"].append(v)
-                it["card"] = card.get("source") or ""
+                names.append(card.get("source") or "")
             except Exception as e:  # noqa: BLE001
                 log.warning("carte abandonnée : %s", e)
+        it["card"] = ", ".join(n_ for n_ in names if n_)
         it["status"] = ("✅ " + " + ".join(x for x in (("extrait vidéo" if it["video"] else ""),
-                                                         (f"carte ({it['card']})" if it["card"] else "")) if x)
-                        if (it["video"] or it["card"]) else "rien de solide trouvé")
+                                                         (f"{len(names)} carte(s) ({it['card']})" if names else "")) if x)
+                        if (it["video"] or names) else "rien de solide trouvé")
     log.info("Recherche par affirmation : %d affirmation(s), %d avec un extrait ou une carte, %d élément(s) contraires",
              len(info["claims"]), sum(1 for i in info["claims"] if i["status"].startswith("✅")), len(info["contre"]))
     return info

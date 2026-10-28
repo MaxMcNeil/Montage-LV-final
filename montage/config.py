@@ -140,7 +140,7 @@ DEFAULTS = {
     "ouverture_choc": "oui",        # oui : la vidéo commence par le passage le plus fort de ta vidéo jointe
                                     # (aucune vidéo jointe → la vidéo commence normalement, comme « non »)
     "finder": "dernier",            # dernier | non | <nom d'un lot> : résultats de Vid-o-presse-finder à monter
-    "affirmations": "6",            # affirmations de ta vidéo cherchées une par une (vidéos, presse, Telegram, Reddit) ; 0 = aucune
+    "affirmations": "auto",         # auto = selon la durée (~1/min, 4 à 30) ; ou un nombre ; 0 = aucune
     "chaine": "auto",               # auto (langue de la vidéo) | fr | ar | it | en… (dossier chaines/) | non
     "logo": "oui",                  # oui : petit logo permanent + grand logo sur la carte de fin
     "mise_en_scene": "oui",         # oui : plans (zooms) choisis selon ta voix (ton qui monte = plan serré) et ton débit

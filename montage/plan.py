@@ -62,8 +62,8 @@ Décide :
    [{{"attachment": "id", "after": numéro de la phrase après laquelle on l'insère (quand l'auteur vient d'en parler ou
    de l'annoncer), "clip_start": seconde de début dans la vidéo jointe, "clip_end": seconde de fin}}]. L'extrait dure
    au plus {max_insert} s, commence et finit sur une phrase complète de la vidéo jointe.
-6. "press" : les AFFIRMATIONS VÉRIFIABLES les plus fortes de l'auteur (au plus {max_press}, les plus importantes
-   d'abord) : une déclaration qu'il cite, un fait d'actualité, un chiffre, une décision. Chacune sera cherchée en
+6. "press" : TOUTES les AFFIRMATIONS VÉRIFIABLES de l'auteur (au plus {max_press}, les plus importantes d'abord ;
+   moins s'il y en a moins) : une déclaration qu'il cite, un fait d'actualité, un chiffre, une décision. Chacune sera cherchée en
    vidéo, dans la presse et sur les réseaux pour l'APPUYER (et repérer ce qui la contredit). Pas d'opinions ni de
    généralités invérifiables :
    [{{"target": "personne, pays, entité ou sujet", "claim": "ce qui aurait été dit ou fait (quelques mots)",
@@ -105,7 +105,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
         attachments=describe_attachments(att), notes=(notes or "(aucune)")[:2000],
         chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
         max_insert=opts.get("duree_max_insert", 25),
-        max_press=_max_press(opts))
+        max_press=_max_press(opts, speech))
     if not ai or not ai.ok:
         return fallback(sents, att)
     j = ai.json(prompt)
@@ -120,7 +120,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
             attachments=describe_attachments(short), notes=(notes or "(aucune)")[:800],
             chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
             max_insert=opts.get("duree_max_insert", 25),
-            max_press=_max_press(opts))
+            max_press=_max_press(opts, speech))
         j = ai.json(prompt)
     if not isinstance(j, dict):
         log.warning("Plan IA indisponible → plan minimal")
@@ -128,13 +128,15 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
     return clean(j, sents, att)
 
 
-def _max_press(opts: dict) -> int:
+def _max_press(opts: dict, speech_s: float = 0.0) -> int:
+    """« auto » (défaut) : selon la durée de parole — ~1 affirmation par minute, au moins 4, au plus 30 ; l'IA n'en
+    garde que les vraies affirmations vérifiables (moins si la vidéo en contient moins)."""
     if opts.get("recherche_presse") == "non":
         return 0
-    try:
-        return max(0, min(12, int(opts.get("affirmations") or 6)))
-    except ValueError:
-        return 6
+    v = str(opts.get("affirmations") or "auto").strip().lower()
+    if v.isdigit():
+        return max(0, min(30, int(v)))
+    return int(max(4, min(30, round(speech_s / 60))))
 
 
 def _int(v, default=None):

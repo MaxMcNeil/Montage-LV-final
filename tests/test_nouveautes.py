@@ -30,14 +30,19 @@ def mk(root: Path, code: str, js=None, logo="round", size=512):
     return d
 
 
-def test_choose_rules(tmp_path):
+def test_choose_rules_strict_language(tmp_path):
     mk(tmp_path, "fr", {"nom": "Le Journal du NON", "langues": ["fr"], "defaut": True})
-    mk(tmp_path, "ar", {"langues": ["ar"]})
+    mk(tmp_path, "ar", {"nom": "Gulf think-tank", "langues": ["ar"]})
     assert K.choose("auto", "fr", tmp_path)[0]["code"] == "fr"
     assert K.choose("auto", "ar", tmp_path)[0]["code"] == "ar"
-    p, why = K.choose("auto", "it", tmp_path)
-    assert p["code"] == "fr" and "par défaut" in why
-    p, why = K.choose("en", "fr", tmp_path)
+    for lg in ("it", "en", ""):                       # jamais le logo d'une autre langue
+        p, why = K.choose("auto", lg, tmp_path)
+        assert p is None and "sans logo" in why
+    p, why = K.choose("fr", "ar", tmp_path)            # chaîne forcée dans la mauvaise langue : refusée
+    assert p is None and why.startswith("⚠")
+    p, why = K.choose("ar", "ar", tmp_path)
+    assert p["code"] == "ar"
+    p, why = K.choose("en", "fr", tmp_path)            # chaîne inconnue → auto (fr pour une vidéo fr)
     assert p["code"] == "fr" and why.startswith("⚠")
     assert K.choose("non", "fr", tmp_path)[0] is None
     assert K.choose("auto", "fr", tmp_path / "rien")[0] is None

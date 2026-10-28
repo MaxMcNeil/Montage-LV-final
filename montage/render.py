@@ -522,7 +522,8 @@ def extract_main_audio(src: Path, info: dict, out: Path) -> Path:
     return out
 
 
-def mux(video: Path, audio: Path, out: Path) -> Path:
+def mux(video: Path, audio: Path, out: Path, comment: str = "") -> Path:
+    meta = ["-metadata", f"comment={comment}"] if comment else []
     run(["ffmpeg", "-y", "-i", video, "-i", audio, "-map", "0:v", "-map", "1:a", "-c:v", "copy", "-c:a", "aac",
-         "-b:a", "192k", "-movflags", "+faststart", "-shortest", out], timeout=1800)
+         "-b:a", "192k", "-movflags", "+faststart", "-shortest"] + meta + [out], timeout=1800)
     return out

@@ -3,8 +3,9 @@
     chaines/<code>/chaine.json   {"nom": "...", "langues": ["fr"], "defaut": true}
     chaines/<code>/logo.png      PNG (fond transparent idéal, 512 px ou plus)
 
-Choix du profil (réglage « chaine ») : auto (défaut) = la chaîne dont la langue est celle de la vidéo, sinon la
-chaîne marquée « defaut » ; un code (fr, ar, it, en…) = cette chaîne ; non = aucun habillage de chaîne.
+Choix du profil (réglage « chaine ») : auto (défaut) = la chaîne dont la langue est celle de la vidéo ; aucune chaîne
+dans cette langue = AUCUN logo (jamais le logo d'une autre langue) ; un code (fr, ar…) = cette chaîne, seulement si
+la vidéo est dans sa langue ; non = aucun habillage de chaîne.
 Changer de logo ou de nom = remplacer le fichier. Nouvelle chaîne = nouveau dossier.
 
 Habillage : petit logo permanent en haut à droite (hors du visage et des cadres), grand logo sur la carte de fin, et
@@ -69,8 +70,11 @@ def load(d: Path) -> dict:
 
 
 def choose(which: str, lang: str, root: Path = ROOT) -> tuple[dict | None, str]:
-    """(profil, explication pour PLAN.md)."""
+    """(profil, explication pour PLAN.md). Règle stricte : le logo d'une chaîne n'apparaît QUE sur une vidéo dans la
+    langue de cette chaîne (jamais le logo français sur une vidéo arabe, italienne ou anglaise, et inversement).
+    Pas de chaîne pour la langue de la vidéo → aucun logo (jamais celui d'une autre langue)."""
     which = (which or "auto").strip().lower()
+    lg = (lang or "")[:2]
     if which in ("non", "no", "aucun", "aucune", "off", "0"):
         return None, "habillage de chaîne désactivé (réglage chaine: non)"
     profs = load_all(root)
@@ -79,16 +83,18 @@ def choose(which: str, lang: str, root: Path = ROOT) -> tuple[dict | None, str]:
     if which not in ("auto", "oui", "yes", "defaut", "défaut", ""):
         p = next((x for x in profs if x["code"] == which), None) \
             or next((x for x in profs if x["nom"].lower() == which), None)
-        if p:
-            return p, f"chaîne « {p['nom'] or p['code']} » (choisie : {which})"
-        auto, why = choose("auto", lang, root)
-        return auto, f"⚠ chaîne « {which} » introuvable dans chaines/ → {why}"
-    lg = (lang or "")[:2]
+        if not p:
+            auto, why = choose("auto", lang, root)
+            return auto, f"⚠ chaîne « {which} » introuvable dans chaines/ → {why}"
+        if lg and lg not in p["langues"]:
+            return None, (f"⚠ chaîne « {p['nom'] or p['code']} » ({'/'.join(p['langues'])}) demandée pour une vidéo en "
+                          f"« {lg} » : aucun logo mis (langue de la chaîne ≠ langue de la vidéo)")
+        return p, f"chaîne « {p['nom'] or p['code']} » (choisie : {which})"
     p = next((x for x in profs if lg and lg in x["langues"]), None)
     if p:
         return p, f"chaîne « {p['nom'] or p['code']} » (langue de la vidéo : {lg})"
-    p = next((x for x in profs if x["defaut"]), None) or next((x for x in profs if x["code"] == "fr"), None) or profs[0]
-    return p, f"chaîne « {p['nom'] or p['code']} » (aucune chaîne en « {lg} » : chaîne par défaut)"
+    return None, (f"aucune chaîne en « {lg} » dans chaines/ : vidéo sans logo (jamais le logo d'une autre langue). "
+                  f"Pour en ajouter une : chaines/{lg or 'xx'}/logo.png + chaine.json")
 
 
 # ------------------------------------------------------------------ logo

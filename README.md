@@ -60,14 +60,16 @@ Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vi
 
 ## 🆕 Habillage, mise en scène, recherche par affirmation
 
-- **Chaîne (logo, nom, couleurs)** : dossier [`chaines/`](chaines/README.md), une chaîne par langue (fr, ar, puis it, en…).
-  Choisie selon la langue de la vidéo ; réglage `chaine: ar` pour forcer, `chaine: non` / `logo: non` pour retirer.
+- **Chaîne (logo, nom, couleurs)** : dossier [`chaines/`](chaines/README.md), une chaîne par langue (fr = Le Journal du
+  NON, ar = Gulf think-tank, puis it, en…). **Règle stricte** : logo d'une chaîne seulement sur une vidéo dans sa
+  langue ; langue sans chaîne → aucun logo. Les Shorts (Push-overlay) lisent ce même dossier.
+- **Articles** : autant que la vidéo en porte (~1 par minute et demie, jusqu'à 30) — plusieurs cartes par affirmation.
 - **« Écoutez ça » dans 4 langues** : *écoutez ça · écoutez ce qu'il dit…* / *ascoltate questo · ascoltate cosa dice…* /
   *listen to this · listen to what he says…* / *اسمعوا هذا · اسمعوا ماذا يقول…* → l'extrait de ta vidéo jointe juste après.
 - **Mise en scène par ta voix** (`mise_en_scene: non` pour couper) : ton qui monte → plan serré (coupe au début de la
   phrase), ton posé → plan large, débit rapide → plans plus courts. Jamais deux fois le même plan de suite.
-- **Recherche par affirmation** (`affirmations: 6` par défaut, `0` = aucune) : les affirmations vérifiables de ta vidéo
-  sont cherchées une par une (vidéos, presse, **Telegram**, **Reddit**), même si le lot Finder est utilisé (sans
+- **Recherche par affirmation** (`affirmations: auto` par défaut = selon la durée, ~1 par minute, de 4 à 30 ; ou un
+  nombre ; `0` = aucune) : TOUTES les affirmations vérifiables de ta vidéo sont cherchées une par une (vidéos, presse, **Telegram**, **Reddit**), même si le lot Finder est utilisé (sans
   refaire ce qu'il couvre déjà). PLAN.md liste chaque affirmation (trouvé / rien / pourquoi) et une section
   **🛡 Ce qui te contredit** : à anticiper dans ta vidéo.
 - **Telegram** : secrets `TG_API_ID`, `TG_API_HASH`, `TG_SESSION` — session **différente** de celle de

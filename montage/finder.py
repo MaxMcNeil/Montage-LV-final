@@ -16,7 +16,7 @@ log = logging.getLogger("montage.finder")
 LOT_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})")
 
 
-def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 16, max_articles: int = 12) -> dict | None:
+def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 24, max_articles: int = 40) -> dict | None:
     res = vpf / "results"
     if not res.is_dir():
         log.info("Vid-o-presse-finder : dossier results introuvable")
@@ -158,10 +158,16 @@ Choisis UNIQUEMENT ce qui correspond à ce que dit l'auteur (même fait, même d
   au moins 3 phrases d'écart entre deux insertions, aucune avant la phrase 2. Une déclaration longue peut être
   utilisée en PLUSIEURS morceaux si l'auteur en commente plusieurs parties : répète le même numéro avec des
   "part" différents (1, 2…). UNIQUEMENT ce qui est en totale concordance avec ce que dit l'auteur à cet endroit.
-- "articles" : au plus 6 articles affichés à côté de l'auteur quand il évoque ce qu'ils racontent :
+- "articles" : au plus {max_art} articles affichés à côté de l'auteur quand il évoque ce qu'ils racontent :
   [{{"article": numéro, "s0": numéro de phrase, "headline": "titre traduit en « {lang} » si besoin (sinon le titre)"}}].
-  Pas deux articles sur la même phrase ni sur la phrase d'une insertion.
+  Pas deux articles sur la même phrase ni sur la phrase d'une insertion. Prends TOUS ceux qui correspondent vraiment.
 Si rien ne correspond, renvoie des listes vides. Réponds en JSON : {{"inserts": [...], "articles": [...]}}."""
+
+
+def max_articles_for(sents: list) -> int:
+    """Articles affichables selon la durée de parole : ~1 par minute et demie, entre 6 et 30."""
+    speech = (sents[-1]["t1"] - sents[0]["t0"]) / 60 if sents else 0
+    return int(max(6, min(30, round(speech / 1.5))))
 
 
 def match(ai, sents: list, lot: dict, lang: str, max_ins: int) -> dict:
@@ -177,8 +183,9 @@ def match(ai, sents: list, lot: dict, lang: str, max_ins: int) -> dict:
     text = "\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"]}' for s in sents)
     if len(text) > 100_000:
         text = "\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"][:150]}' for s in sents)
+    max_art = max_articles_for(sents)
     j = ai.json(PROMPT.format(lang=lang, searches="; ".join(lot.get("searches") or []) or "même sujet", clips=clips,
-                              articles=arts, sentences=text, max_ins=max(1, max_ins)))
+                              articles=arts, sentences=text, max_ins=max(1, max_ins), max_art=max_art))
     if not isinstance(j, dict):
         return out
     n = len(sents)
@@ -206,7 +213,7 @@ def match(ai, sents: list, lot: dict, lang: str, max_ins: int) -> dict:
         a, s0 = ii(x.get("article")), ii(x.get("s0"))
         if a is None or not 0 <= a < len(lot["articles"]) or s0 is None or not 0 <= s0 < n or s0 in taken:
             continue
-        if a in {y["article"] for y in out["articles"]} or len(out["articles"]) >= 6:
+        if a in {y["article"] for y in out["articles"]} or len(out["articles"]) >= max_art:
             continue
         taken.add(s0)
         out["articles"].append({"article": a, "s0": s0, "headline": str(x.get("headline") or "").strip()[:200]})
