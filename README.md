@@ -81,6 +81,12 @@ Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vi
   pas d'ajout automatique à moins de 1 min 30 du précédent. Tes « écoutez ça » et tes pièces jointes passent toujours.
   Trou à remplir : passage de tes vidéos jointes, sinon article pas encore utilisé, sinon photo (la tienne, sinon photo
   libre) — toujours cohérent et vérifié. Le contrôle qualité signale ⚠ tout trou de plus de 2 min 30 après 5 min.
+- **Limites automatiques** : nombre d'extraits (tes vidéos jointes, presse, Finder) dimensionné sur la durée de ta
+  vidéo selon la règle du rythme (ex. 35 min → 20 éléments) — plus aucun chiffre fixe. `max_inserts: 10` force un
+  nombre si tu veux. Tes « écoutez ça » passent toujours en plus.
+- **Tes pièces jointes** : une vidéo jointe sans silence juste après le moment prévu est placée au silence d'une
+  phrase voisine (jamais sur un mot). Une pièce jointe qui n'a pu être placée fait passer le verdict en **⚠** avec
+  son nom et la raison.
 - **Voix studio chaude** (`voix_studio: oui`, **non** par défaut ; réglage « chaude max » choisi à l'écoute) :
   coupe des grondements, débruitage doux réglé sur le bruit de ta pièce, profondeur (graves de la voix), clarté
   et présence, dé-esseur, double compression façon radio, volume YouTube. Contrôlé : même durée à l'échantillon près,

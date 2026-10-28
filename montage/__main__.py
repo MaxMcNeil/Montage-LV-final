@@ -836,6 +836,16 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                  audio_note=""):
     L = []
     qc = list(qc or [])
+    # tes pièces jointes : chacune doit apparaître (sinon verdict ⚠, avec le nom et la raison)
+    used_ = {c["v"].get("attachment") for c in chosen}
+    for s_ in segs:
+        if s_.kind == "insert":
+            used_ |= {s_.insert.get("attachment"), (s_.insert.get("asset") or {}).get("attachment")}
+    miss_ = [x for x in att if x["id"] not in used_]
+    if miss_:
+        qc.append((False, "pièce(s) jointe(s) absente(s) du montage : " + ", ".join(
+            f"{x['name']} ({'aucun silence sûr pour l’insérer sans te couper' if x['kind'] == 'video' else 'pas de place à l’écran au moment prévu'})"
+            for x in miss_[:8])))
     # logo manquant à l'écran = visible par le public → compte dans le verdict
     for n_ in (brand or {}).get("notes") or []:
         if n_.startswith("⚠") and "logo" in n_:
@@ -1012,7 +1022,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                 continue
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | Extrait vidéo{tr} | plein écran, tu disparais "
                      f"(pendant ton silence) | après « {said} » | {a.get('source', '—')} |")
-    used_att = {c["v"].get("attachment") for c in chosen} | {s.insert.get("attachment") for s in segs if s.kind == "insert"}
+    used_att = {c["v"].get("attachment") for c in chosen} | {s.insert.get("attachment") for s in segs if s.kind == "insert"} \
+        | {(s.insert.get("asset") or {}).get("attachment") for s in segs if s.kind == "insert"}
     left = [x["name"] for x in att if x["id"] not in used_att]
     if left:
         L.append(f"\n⚠ Pièces jointes non placées (aucun moment ne s'y prêtait, ou place prise) : {', '.join(left)}")

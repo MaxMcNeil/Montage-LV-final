@@ -201,17 +201,31 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
             ins["refused"] = True
             continue
         pts.append({"t": t, **ins})
-    for ins in sorted([i for i in inserts if i.get("forced_t") is None], key=lambda i: i["after"]):
-        t = find_pause(words, sents, sil or [], ins["after"])
+    def _ok_point(t):
         if t is None:
-            log.warning("pas de vrai silence après la phrase %d : extrait non inséré (pour ne pas te couper)", ins["after"])
-            continue
+            return None
         t = _snap(t, keep)
         if t is None or any(abs(t - p["t"]) < 8 for p in pts):
-            continue
+            return None
         # sécurité ultime : aucun mot prononcé ne chevauche le point d'insertion
         if any(w["t0"] - 0.05 < t < w["t1"] + 0.05 for w in words):
-            log.warning("point d'insertion %.2f s sur un mot : extrait non inséré", t)
+            return None
+        return t
+    for ins in sorted([i for i in inserts if i.get("forced_t") is None], key=lambda i: i["after"]):
+        a = ins["after"]
+        t = _ok_point(find_pause(words, sents, sil or [], a))
+        if t is None and ins.get("attachment"):
+            # TA vidéo jointe : avant d'abandonner, silences des phrases voisines (juste avant, puis un peu plus loin)
+            for alt, look in ((a - 1, 0), (a - 2, 0), (a, 6), (a - 3, 0)):
+                if 0 <= alt < len(sents):
+                    t = _ok_point(find_pause(words, sents, sil or [], alt, look=look))
+                    if t is not None:
+                        log.info("vidéo jointe : pas de silence juste après la phrase %d → placée au silence voisin "
+                                 "(%.1f s)", a, t)
+                        break
+        if t is None:
+            log.warning("pas de vrai silence sûr autour de la phrase %d : extrait non inséré (pour ne pas te couper)", a)
+            ins["refused"] = True
             continue
         pts.append({"t": t, **ins})
     # 1b) pas de vide autour des extraits : pause ramenée à une respiration avant et après
