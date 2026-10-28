@@ -145,6 +145,9 @@ jobs:
       CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
       CHAINE_ORIGINE: ${{ github.event.client_payload.origine }}
     steps:
+      - name: Début du job (le montage règle ses recherches sur le temps restant)
+        run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v5
 
       - name: État de la release → ⏳ EN COURS

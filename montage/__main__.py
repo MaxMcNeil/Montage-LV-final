@@ -324,7 +324,7 @@ def main(argv=None) -> int:
     press_info = None
     if opts["recherche_presse"] != "non" and plan["press"]:
         press_info = claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir,
-                                    len(plan["press"]), len(sents))
+                                    len(plan["press"]), len(sents), info["duration"])
         ai.save_quota()
     # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
     mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
@@ -474,7 +474,7 @@ def main(argv=None) -> int:
 
 
 def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir, n_max: int,
-                   n_sents: int = 10 ** 6) -> dict:
+                   n_sents: int = 10 ** 6, src_dur: float = 0.0) -> dict:
     """Une recherche Vid-o-presse-finder par affirmation (2 à la fois, budget total borné). Jamais bloquant :
     chaque affirmation finit avec un statut lisible (trouvé, rien, déjà couvert, temps écoulé, erreur)."""
     from concurrent.futures import ThreadPoolExecutor
@@ -491,6 +491,23 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
         todo.append(it)
     # budget proportionnel au nombre d'affirmations (2 recherches à la fois, ~7 min chacune), plafonné à 2 h 30
     budget_end = time.time() + min(150, 12 + 4.0 * len(todo)) * 60
+    # garde-fou : le job GitHub est coupé net à 340 min (tout serait perdu). On garde toujours le temps du rendu
+    # (~1,6 × la durée de la vidéo), du son, du contrôle et de l'envoi (25 min) : les recherches s'adaptent.
+    try:
+        t0_job = float(os.environ.get("JOB_T0") or 0)
+    except ValueError:
+        t0_job = 0.0
+    if t0_job:
+        job_end = t0_job + float(os.environ.get("MONTAGE_JOB_MINUTES", "340")) * 60
+        reserve = (1.6 * src_dur / 60 + 25) * 60
+        budget_end = min(budget_end, job_end - reserve)
+    left_min = (budget_end - time.time()) / 60
+    if todo and left_min < 8:
+        for it in todo:
+            it["status"] = "⚠ sautée : vidéo longue, le temps restant est gardé pour finir le montage"
+        info["time_note"] = f"recherches sautées ({left_min:.0f} min disponibles) pour que le montage finisse à temps"
+        log.warning("Recherche par affirmation sautée : %s", info["time_note"])
+        return info
     results = {}
     main_q = Path(os.environ.get("QF_QUOTA_FILE", "state/quota.json"))
     ai.save_quota()               # point de départ commun des recherches parallèles (refusionnées ensuite)
@@ -525,7 +542,7 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
     for k, it in enumerate(todo):
         p, res = it["p"], results.get(id(it))
         if res is None:
-            it["status"] = "⚠ temps imparti écoulé : non cherchée"
+            it["status"] = "⚠ non cherchée : temps gardé pour finir le montage (les plus importantes passent d'abord)"
             continue
         for key, v in (res.get("social") or {}).items():
             if key in ("telegram", "reddit") and (key not in info["social"] or str(v).startswith("⚠")):
