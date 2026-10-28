@@ -26,7 +26,7 @@ Joins **ta vidéo** + tes **photos / vidéos** (glisser ou « Attach binaries »
 sous_titres: non
 couper_silences: dynamique
 recherche_presse: non
-max_inserts: 4
+max_inserts: auto
 duree_max_insert: 20
 langue: ar
 effets_sonores: non

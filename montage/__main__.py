@@ -58,7 +58,9 @@ def options(path: str | None) -> dict:
     m = re.search(r"\d+", o.get("affirmations") or "")
     o["affirmations"] = "0" if (o.get("affirmations") or "") in no else str(min(30, int(m.group(0)))) if m else "auto"
     o["chaine"] = (o.get("chaine") or "auto").strip() or "auto"
-    for k in ("max_inserts", "duree_max_insert"):
+    m = re.search(r"\d+", o.get("max_inserts") or "")
+    o["max_inserts"] = m.group(0) if m else "auto"          # auto = dimensionné selon la durée de ta vidéo
+    for k in ("duree_max_insert",):
         m = re.search(r"\d+", o[k] or "")
         o[k] = m.group(0) if m else C.DEFAULTS[k]
     o["duree_max_insert"] = str(min(90, max(6, int(o["duree_max_insert"]))))
@@ -150,6 +152,15 @@ def main(argv=None) -> int:
         from .plan import clean
         plan = clean(json.loads(Path(forced).read_text(encoding="utf-8")), sents, att)
     else:
+        # limites dimensionnées sur la durée (règle du rythme), jamais un chiffre fixe
+        from .cadence import rule_count
+        speech_s = (sents[-1]["t1"] - sents[0]["t0"]) if sents else info["duration"]
+        n_rule = rule_count(speech_s)
+        n_vids = max(1, sum(1 for x in att if x["kind"] == "video"))
+        opts["_n_rule"] = n_rule
+        opts["_per_video"] = max(3, -(-n_rule // n_vids) + 2)    # passages possibles par vidéo jointe
+        log.info("Rythme : %d élément(s) attendus pour %s de parole → jusqu'à %d passage(s) par vidéo jointe",
+                 n_rule, tc(speech_s), opts["_per_video"])
         plan = ask(ai, lang, sents, att, notes, opts) if sents else {"visuals": [], "inserts": [], "press": [], "chapters": [],
                                                                      "emphasis": {}, "hook": "", "outro": ""}
     save_json(work / "plan_ia.json", plan)
@@ -190,7 +201,10 @@ def main(argv=None) -> int:
 
     # 4) extraits vidéo insérés pendant tes silences
     maxd = float(opts["duree_max_insert"] or 25)
-    max_ins = int(opts["max_inserts"] or 6)
+    from .cadence import rule_count as _rc
+    n_rule = opts.get("_n_rule") or _rc((sents[-1]["t1"] - sents[0]["t0"]) if sents else info["duration"])
+    max_ins = int(opts["max_inserts"]) if str(opts["max_inserts"]).isdigit() else n_rule
+    cap_att = n_rule + 4          # passages de TES vidéos jointes (en plus : « écoutez ça », rythme)
     inserts = []
     from .cadence import clashes, passage_label
     used: dict = {}   # passages déjà pris par vidéo jointe : {id: [(début, fin), …]} — jamais deux fois le même
@@ -208,7 +222,7 @@ def main(argv=None) -> int:
             used.setdefault(opener["attachment"], []).append(opener["clip"])
     for k, ins in enumerate(plan["inserts"]):
         x = by_id.get(ins["attachment"])
-        if not x or len(inserts) >= 12:  # tes vidéos passent avant la limite des extraits de presse
+        if not x or len(inserts) >= cap_att:  # dimensionné selon la durée (tes vidéos passent avant la presse)
             continue
         s_ = x.get("sentences") or []
         want0 = ins.get("clip_start") or 0.0

@@ -43,7 +43,7 @@ on:
         options: [défaut, oui, non]
         default: défaut
       max_inserts:
-        description: "Nombre max d'extraits vidéo de presse insérés (tes vidéos jointes passent toujours)"
+        description: "Extraits vidéo de presse / Finder au maximum — VIDE = auto, selon la durée de ta vidéo (tes vidéos jointes passent toujours)"
         required: false
         default: ""
       ouverture_choc:

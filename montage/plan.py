@@ -57,7 +57,7 @@ Décide :
    - quote : 1 à 3 maximum dans toute la vidéo, sur les phrases les plus fortes.
    - attachment : place CHAQUE image jointe au moment où l'auteur parle de ce qu'elle montre (sinon ne la place pas).
 5. "inserts" : des passages des VIDÉOS jointes, insérés pendant un silence de l'auteur (il disparaît le temps de
-   l'extrait). Une même vidéo jointe peut fournir PLUSIEURS passages (jusqu'à 5), chacun placé là où l'auteur parle
+   l'extrait). Une même vidéo jointe peut fournir PLUSIEURS passages (jusqu'à {per_video}), chacun placé là où l'auteur parle
    précisément de ce que dit ou montre ce passage ; au moins 3 phrases d'écart entre deux insertions :
    [{{"attachment": "id", "after": numéro de la phrase après laquelle on l'insère (quand l'auteur vient d'en parler ou
    de l'annoncer), "clip_start": seconde de début dans la vidéo jointe, "clip_end": seconde de fin}}]. L'extrait dure
@@ -109,7 +109,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
         attachments=describe_attachments(att), notes=(notes or "(aucune)")[:2000],
         chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
         max_insert=opts.get("duree_max_insert", 25),
-        max_press=_max_press(opts, speech))
+        max_press=_max_press(opts, speech), per_video=opts.get("_per_video", 5))
     if not ai or not ai.ok:
         return fallback(sents, att)
     j = ai.json(prompt)
@@ -124,7 +124,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
             attachments=describe_attachments(short), notes=(notes or "(aucune)")[:800],
             chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
             max_insert=opts.get("duree_max_insert", 25),
-            max_press=_max_press(opts, speech))
+            max_press=_max_press(opts, speech), per_video=opts.get("_per_video", 5))
         j = ai.json(prompt)
     if not isinstance(j, dict):
         log.warning("Plan IA indisponible → plan minimal")

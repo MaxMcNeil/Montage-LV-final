@@ -74,6 +74,13 @@ Donne une légende de 2 à 6 mots en langue « {lang} » qui décrit CE PASSAGE 
 de quoi il s'agit), sans rien inventer. Réponds en JSON : {{"label": "…"}}"""
 
 
+def rule_count(speech_s: float) -> int:
+    """Nombre d'éléments que demande la règle de rythme pour cette durée : un par minute sur les 5 premières
+    minutes, puis un toutes les 2 minutes. Sert à dimensionner les limites (jamais un chiffre fixe)."""
+    d = max(0.0, float(speech_s or 0))
+    return max(1, int(min(d, FIRST) // GAP1) + int(max(0.0, d - FIRST) // GAP2))
+
+
 def overlap(a: tuple, b: tuple) -> float:
     return max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
 
