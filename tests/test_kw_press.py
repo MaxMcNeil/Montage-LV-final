@@ -46,10 +46,42 @@ def test_refused_or_download_fail_leaves_it_out(monkeypatch, tmp_path):
     info, ins = kw_info(), []
     M.kw_press_fallback(AI(ok_check=False), w, s, info, ins, POOL, "h", tmp_path, "fr", 25)
     assert not info["items"][0]["inserted"] and not ins and "refusées" in info["items"][0]["why"]
-    monkeypatch.setattr(M, "clip_insert", lambda *a, **k: None)          # YouTube refuse : candidat suivant, puis rien
+    monkeypatch.setattr(M, "clip_insert", lambda *a, **k: None)          # YouTube refuse tout : carte citation réelle
+    monkeypatch.setattr(M, "quote_card_insert", lambda c, quote, *a, **k: {"duration": 6, "card": True, "quote": quote})
+    info, ins = kw_info(), []
+    M.kw_press_fallback(AI(), w, s, info, ins, POOL, "h", tmp_path, "fr", 25)
+    assert ins and ins[0]["asset"]["card"] and "CARTE CITATION" in ins[0]["asset"]["source"]
+    assert info["items"][0]["inserted"] and "carte" in info["items"][0]["why"]
+    monkeypatch.setattr(M, "quote_card_insert", lambda *a, **k: None)    # carte impossible aussi : rien, expliqué
     info, ins = kw_info(), []
     M.kw_press_fallback(AI(), w, s, info, ins, POOL, "h", tmp_path, "fr", 25)
     assert not ins and "non téléchargeable" in info["items"][0]["why"]
+
+
+def test_downloadable_first(monkeypatch, tmp_path):
+    w, s = words_sents()
+    tried = []
+
+    def ci(c, *a, **k):
+        tried.append(c[0]["source_url"])
+        return {"duration": 8, "credit": {"url": c[0]["source_url"]}}
+    monkeypatch.setattr(M, "clip_insert", ci)
+    pool = [{"source_url": "https://www.youtube.com/watch?v=a", "platform": "youtube", "start": 1, "quote": "q"},
+            {"source_url": "https://www.dailymotion.com/video/b", "platform": "dailymotion", "start": 2, "quote": "q"}]
+    info, ins = kw_info(), []
+    M.kw_press_fallback(AI(), w, s, info, ins, pool, "h", tmp_path, "fr", 25)
+    assert tried[0].startswith("https://www.dailymotion")
+
+
+def test_quote_card_real_render(tmp_path):
+    from montage.assets import quote_card_insert
+    from montage.util import probe
+    c = {"source_url": "https://exemple.org/v", "platform": "site", "speaker": "Le ministre", "channel": "France 24",
+         "uploaded": "2026-10-20"}
+    for orient, lg, q in (("h", "fr", "Le chômage a baissé de dix pour cent cette année, c'est historique."),
+                          ("v", "ar", "انخفضت البطالة بنسبة عشرة في المئة هذا العام")):
+        a = quote_card_insert(c, q, orient, tmp_path, f"t_{orient}", lg, 900, 800)
+        assert a and a["card"] and abs(probe(a["video"])["duration"] - a["duration"]) < 0.2
 
 
 def test_no_ai_no_pool_noop(tmp_path):

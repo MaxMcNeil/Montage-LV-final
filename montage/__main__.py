@@ -18,7 +18,7 @@ from pathlib import Path
 from . import config as C
 from .ai import AI
 from .ass import ASS
-from .assets import (choose_bounds, clip_insert, describe_attachments, list_attachments, og_image, prepare_insert,
+from .assets import (choose_bounds, clip_insert, is_youtube, quote_card_insert, describe_attachments, list_attachments, og_image, prepare_insert,
                      press_clip, press_search, thumbnail, wiki_image)
 from .finder import load_lot
 from .finder import match as finder_match
@@ -803,7 +803,8 @@ déclaration ci-dessous. Est-ce bien CE QU'IL ANNONCE (même personne / même pr
 AVANT l'annonce : « {before} »
 APRÈS : « {after} »
 DÉCLARATION : {who} — « {quote} »
-Réponds en JSON : {{"ok": true/false, "score": 0 à 10, "reason": "une phrase"}}"""
+Réponds en JSON : {{"ok": true/false, "score": 0 à 10, "reason": "une phrase",
+"quote": "la déclaration, FIDÈLE, traduite en « {lang} » si besoin, 12 à 40 mots"}}"""
 
 
 def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, lang, maxd) -> None:
@@ -866,7 +867,10 @@ def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, la
                 continue
             if 0 <= k < len(clips) and k not in used_k:
                 cands.append(k)
-        for k in cands[:3]:
+        cands = cands[:3]
+        cands.sort(key=lambda k_: is_youtube(clips[k_]))   # à pertinence vérifiée égale : téléchargeables d'abord
+        verified = []
+        for k in cands:
             c = clips[k]
             bef, aft = _ctx(words, max(0, it["w1"] - 60), it["w1"], 90, 40)
             ck = ai.json(KW_PRESS_CHECK.format(lang=lang, phrase=it["phrase"], before=bef, after=aft,
@@ -876,6 +880,7 @@ def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, la
                 it.setdefault("press_refused", []).append(str((ck or {}).get("reason") or "vérification négative")[:120]
                                                           if isinstance(ck, dict) else "vérification indisponible")
                 continue
+            verified.append((k, c, ck))
             asset = clip_insert([c], orient, work, f"kwp{it['n']}_{k}", lang, ai, maxd, used)
             if not asset:
                 it.setdefault("press_refused", []).append("vidéo non téléchargeable")
@@ -893,6 +898,26 @@ def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, la
                       press=True)
             log.info("Mot-clé « %s » : déclaration trouvée insérée (%s)", it["phrase"], it["video"])
             break
+        if not it["inserted"] and verified and time.time() < end_t:
+            # cas extrême : la bonne déclaration existe mais aucune vidéo ne se télécharge → la VRAIE citation en carte
+            k, c, ck = verified[0]
+            quote = str(ck.get("quote") or c.get("quote") or "").strip()
+            ws = quote.split()
+            quote = " ".join(ws[:45]) + ("…" if len(ws) > 45 else "")
+            pw_, ph_ = C.GEOM[orient]["left"]["panel"][2:]
+            asset = quote_card_insert(c, quote, orient, work, f"kwq{it['n']}", lang, pw_, ph_) if quote else None
+            if asset:
+                asset["source"] = (f"MOT-CLÉ « {it['phrase']} » — CARTE CITATION (vidéo non téléchargeable) : "
+                                   f"{c.get('speaker') or '?'} — {c.get('channel') or ''} ({c.get('source_url')})")
+                s_i = next((x["i"] for x in sents if x["w0"] <= it["w1"] <= x["w1"]), 0)
+                inserts.append({"after": s_i, "asset": asset, "forced_t": it["pending_t"], "kw": it["n"]})
+                used_k.add(k)
+                it.update(inserted=True, at=it["pending_t"], video=f"carte citation : {c.get('speaker') or 'déclaration'}"
+                          f" — {c.get('channel') or ''}", a=float(c.get("start") or 0), b=float(c.get("end") or 0),
+                          why=str(p.get("why") or "")[:200] + " (vidéo non téléchargeable : citation réelle en carte)",
+                          check={"ok": True, "score": ck.get("score"), "reason": str(ck.get("reason") or "")[:200]},
+                          press=True)
+                log.info("Mot-clé « %s » : vidéo bloquée → citation réelle en carte (%s)", it["phrase"], it["video"])
         if not it["inserted"] and it.get("press_refused"):
             it["why"] = (it.get("why") or "") + " ; déclarations trouvées essayées mais refusées (" + \
                 "; ".join(it["press_refused"][:2]) + ")"

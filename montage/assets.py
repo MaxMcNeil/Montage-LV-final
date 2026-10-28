@@ -400,11 +400,59 @@ def prepare_insert(src: Path, a: float, b: float, orient: str, work: Path, name:
             "translated": bool(subs) and bool(clip_lang) and clip_lang[:2] != (lang or "")[:2], "clip_lang": clip_lang}
 
 
+def is_youtube(c: dict) -> bool:
+    return c.get("platform") == "youtube" or "youtu" in str(c.get("source_url") or "")
+
+
+def quote_card_insert(c: dict, quote: str, orient: str, work: Path, name: str, lang: str, pw: int, ph: int) -> dict | None:
+    """Extrait impossible à télécharger : la VRAIE déclaration montrée en carte plein écran pendant ton silence
+    (vignette de la vidéo, citation fidèle, qui parle, média, date). Rien d'inventé : c'est la citation réelle."""
+    from PIL import Image
+    from .panels import open_image, render_panel
+    try:
+        W, H = SIZE[orient]
+        img_p = thumbnail(c, work / "web" / f"{name}_thumb")
+        when = str(c.get("uploaded") or c.get("date") or "")[:10]
+        sub = " · ".join(x for x in (c.get("channel") or c.get("platform") or "", when) if x)
+        panel = render_panel("statement", pw, ph, {"text": quote, "label": c.get("speaker") or "", "sublabel": sub,
+                                                   "image": open_image(img_p) if img_p else None},
+                             work / "kwcards", name)
+        frame = Image.open(panel["frame"]).convert("RGBA")
+        card = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+        if panel.get("photo") and panel.get("hole"):
+            x, y, w, h = panel["hole"]
+            card.paste(Image.open(panel["photo"]).convert("RGBA").resize((w, h)), (x, y))
+        card.alpha_composite(frame)
+        k = min(W * 0.86 / card.width, H * 0.86 / card.height, 1.6)
+        card = card.resize((int(card.width * k), int(card.height * k)), Image.LANCZOS)
+        from . import config as C
+        bg = Image.new("RGBA", (W, H), C.NAVY_DEEP + (255,))
+        bg.alpha_composite(card, ((W - card.width) // 2, (H - card.height) // 2))
+        png = work / f"{name}.png"
+        bg.convert("RGB").save(png)
+        d = q(max(5.0, min(12.0, len(quote.split()) / 2.6 + 1.5)))
+        n = frames(d)
+        vout, aout = work / f"{name}.mp4", work / f"{name}.wav"
+        run(["ffmpeg", "-y", "-loop", "1", "-framerate", FPS, "-i", png, "-frames:v", n, "-vf", "format=yuv420p",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "19", "-an", vout], timeout=300)
+        run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo", "-t", f"{d:.3f}",
+             "-c:a", "pcm_s16le", aout])
+        return {"video": str(vout), "audio": str(aout), "duration": d, "frames": n, "subs": [], "translated": False,
+                "clip_lang": lang, "card": True,
+                "credit": {"speaker": c.get("speaker") or "", "label": sub, "url": c.get("source_url"),
+                           "title": c.get("title") or "", "source": c.get("channel") or c.get("platform") or ""}}
+    except Exception as e:  # noqa: BLE001
+        log.warning("carte citation %s impossible : %s", name, e)
+        return None
+
+
 def press_clip(res: dict, orient: str, work: Path, idx: int, lang: str, ai, maxd: float, used: set) -> dict | None:
     """Meilleur extrait téléchargeable d'une recherche presse (essaie jusqu'à 4 candidats)."""
     order = {"ia-affiné": 0, "sous-titres": 0, "ia": 1}
     cands = [c for c in res.get("clips", []) if c.get("source_url") and c.get("verdict") != "denial"]
-    cands.sort(key=lambda c: (order.get(c.get("timing"), 2), -float(c.get("score") or 0)))
+    # à précision égale : d'abord les sources qui se téléchargent bien depuis GitHub (médias, Dailymotion…), YouTube
+    # ensuite (il bloque souvent) — la pertinence reste le 1er critère
+    cands.sort(key=lambda c: (order.get(c.get("timing"), 2), is_youtube(c), -float(c.get("score") or 0)))
     return clip_insert(cands[:4], orient, work, f"press{idx}", lang, ai, maxd, used)
 
 
