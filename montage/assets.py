@@ -193,7 +193,8 @@ def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_fil
     langs = ",".join(dict.fromkeys([x.strip() for x in f"{lang},{langs},en".split(",") if x.strip()]))[:20]
     cmd = [sys.executable, "-m", "quote_finder", "--target", p["target"], "--claim", p.get("claim", ""),
            "--type", p.get("type") if p.get("type") in ("personne", "pays", "entite", "sujet") else "auto",
-           "--speakers", "auto", "--authority", "moyenne", "--max-videos", "5", "--max-articles", "8",
+           "--speakers", "auto",
+           "--authority", "moyenne" if p.get("type") == "personne" else "toutes",   # soupçons / rumeurs : toutes les voix "--max-videos", "5", "--max-articles", "8",
            "--langs", langs, "--max-minutes", str(minutes), "--out", str(out), "--batch-id", "lot", "--search-id", sid]
     log.info("Recherche presse : %s | %s", p["target"], p.get("claim", ""))
     res = {"clips": [], "articles": [], "posts": [], "error": "", "social": {}}

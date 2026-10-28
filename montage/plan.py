@@ -62,10 +62,14 @@ Décide :
    [{{"attachment": "id", "after": numéro de la phrase après laquelle on l'insère (quand l'auteur vient d'en parler ou
    de l'annoncer), "clip_start": seconde de début dans la vidéo jointe, "clip_end": seconde de fin}}]. L'extrait dure
    au plus {max_insert} s, commence et finit sur une phrase complète de la vidéo jointe.
-6. "press" : TOUTES les AFFIRMATIONS VÉRIFIABLES de l'auteur (au plus {max_press}, les plus importantes d'abord ;
-   moins s'il y en a moins) : une déclaration qu'il cite, un fait d'actualité, un chiffre, une décision. Chacune sera cherchée en
-   vidéo, dans la presse et sur les réseaux pour l'APPUYER (et repérer ce qui la contredit). Pas d'opinions ni de
-   généralités invérifiables :
+6. "press" : TOUT ce que dit l'auteur dont on peut chercher la trace en vidéo, dans la presse ou sur les réseaux
+   (au plus {max_press}, les plus importants d'abord ; moins s'il y en a moins) : déclarations qu'il cite, faits,
+   chiffres, décisions, mais AUSSI soupçons, rumeurs, accusations, révélations, thèses dont beaucoup de vidéos ou
+   d'articles parlent — même non confirmés : c'est du journalisme citoyen, AUCUN tri sur le fond, aucune censure.
+   Le but est de retrouver ceux qui en parlent (pour appuyer ce qu'il dit) et ceux qui le contestent (pour qu'il
+   puisse y répondre). Seules les pures opinions personnelles sans objet précis sont exclues. "type" : "personne"
+   UNIQUEMENT si on cherche les propres paroles de cette personne ; un soupçon, une rumeur ou une accusation qui
+   la VISE = "sujet" (on cherche alors tous ceux qui en parlent) :
    [{{"target": "personne, pays, entité ou sujet", "claim": "ce qui aurait été dit ou fait (quelques mots)",
    "type": "personne|pays|entite|sujet", "after": phrase après laquelle insérer l'extrait vidéo trouvé,
    "s0": première phrase où l'auteur en parle, "langs": "codes de langues des sources probables, ex. fr,en"}}].
