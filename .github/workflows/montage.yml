@@ -72,7 +72,7 @@ on:
         options: [auto, fr, ar, it, en, non]
         default: auto
       finder:
-        description: "Synchro avec Vid-o-presse-finder : oui = son DERNIER lot ; osint = dernier lot lancé par OSINT-teleprompter- ; non = juste tes pièces jointes"
+        description: "Le montage cherche TOUJOURS lui-même les sources de chaque affirmation de ta vidéo (vidéos, presse, Telegram, Reddit). oui = EN PLUS le dernier lot de Vid-o-presse-finder ; osint = EN PLUS le dernier lot lancé par OSINT-teleprompter- ; non = sans lot"
         type: choice
         options: [oui, osint, non]
         default: oui
