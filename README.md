@@ -56,6 +56,10 @@ Le titre de ta release affiche l'état : **⏳ EN COURS** → **✅ TERMINÉ** (
 Le résultat arrive dans la release **🎬 RÉSULTAT — Montage final** : la vidéo + **PLAN.md** (quoi, où, quand, et pourquoi).
 Chaque nouveau montage **remplace** le précédent dans « 🎬 RÉSULTAT » ; tes releases déposées ne sont jamais supprimées automatiquement.
 
+**Le plus simple, sans release** : dépose ta vidéo (nom commençant par « moi ») ET tes extraits dans le dossier
+Drive **montage-joints**, puis *Actions → Montage final → Run workflow* en laissant « source » **vide**. Ta vidéo
+« moi… » reste dans le dossier après le montage ; les extraits utilisés en sont retirés (montage réussi seulement).
+
 Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vidéo, liens des pièces jointes, consignes, réglages).
 
 ## 🆕 Habillage, mise en scène, recherche par affirmation

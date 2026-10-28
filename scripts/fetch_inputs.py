@@ -172,6 +172,19 @@ def from_rclone(path: str, dest: Path) -> list[Path]:
     return got
 
 
+def joints_mine() -> str | None:
+    """Nom du fichier « moi… » présent dans le dossier Drive montage-joints (None s'il n'y en a pas ou pas de Drive)."""
+    joints = (os.environ.get("MONTAGE_JOINTS_DRIVE") or "montage-joints").strip().strip("/")
+    if os.environ.get("JOINTS_DRIVE", "oui").strip().lower() in ("non", "no", "0", "false"):
+        return None
+    rem = rclone_remote()
+    if not rem:
+        return None
+    ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
+    mine = [x.strip() for x in (ls.stdout or "").splitlines() if is_mine(Path(x.strip()).name) and is_video(Path(x.strip()))]
+    return mine[0] if mine else None
+
+
 def drive_joints(dest: Path) -> list[Path]:
     """Montage lancé à la main / par une release : les photos et vidéos du dossier Drive « montage-joints » sont prises
     aussi (comme dans la chaîne). Seuls les fichiers réellement pris sont retirés du dossier après un montage RÉUSSI
@@ -449,16 +462,23 @@ def main():
         body = release_body(tag)
         files += from_release(tag)
     elif not src:
-        # pas de source : dernière release « montage… »
-        r = sh(["gh", "release", "list", "--repo", REPO, "--limit", "40", "--json", "tagName", "-q", ".[].tagName"], check=False)
-        tags = [t for t in r.stdout.split() if t.lower().startswith("montage")]
-        if not tags:
-            die("Aucune source. Publie une release dont le tag commence par « montage » (vidéo jointe ou lien Drive dans "
-                "la description), ou remplis le champ « source » du formulaire.")
-        tag = tags[0]
-        out("tag", tag)
-        body = release_body(tag)
-        files += from_release(tag)
+        # pas de source : 1) ta vidéo « moi… » déposée dans le dossier Drive montage-joints (dépôt le plus récent, prioritaire)
+        #                 2) sinon la dernière release « montage… »
+        moi_drive = joints_mine()
+        if moi_drive:
+            print(f"Pas de source : ta vidéo « {moi_drive} » est prise dans le dossier Drive montage-joints")
+        else:
+            r = sh(["gh", "release", "list", "--repo", REPO, "--limit", "40", "--json", "tagName", "-q", ".[].tagName"],
+                   check=False)
+            tags = [t for t in r.stdout.split() if t.lower().startswith("montage")]
+            if not tags:
+                die("Aucune vidéo à monter. Dépose ta vidéo (nom commençant par « moi », ex. moi-live.mp4) dans le dossier "
+                    "Drive montage-joints puis relance, OU remplis le champ « source » (ex. gdrive:resultats/moi.mp4), OU "
+                    "publie une release « montage-001 » avec ta vidéo.")
+            tag = tags[0]
+            out("tag", tag)
+            body = release_body(tag)
+            files += from_release(tag)
     body, cuts = parse_cuts(body)
     extra_notes, cuts2 = parse_cuts(os.environ.get("NOTES") or "")
     cuts.update(cuts2)
@@ -510,6 +530,19 @@ def main():
     if main_video is None:
         die("Aucune vidéo trouvée : joins ta vidéo à la release (ou colle son lien Google Drive partagé dans la description).")
     print(f"Ta vidéo : {main_video.name}" + (" (nom commençant par « moi »)" if mine else ""))
+    if len(mine) > 1:
+        msg = (f"{len(mine)} vidéos « moi… » trouvées ({', '.join(f.name for f in mine[:4])}) : la plus lourde est montée "
+               f"({main_video.name}), les autres sont traitées comme des extraits")
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+    # ta vidéo venue du dossier montage-joints : JAMAIS retirée de ton Drive (seuls les extraits utilisés le sont)
+    jdir = RAW / "joints"
+    lst_used = IN / "joints-utilises.txt"
+    if lst_used.exists() and jdir in main_video.parents:
+        rel = str(main_video.relative_to(jdir))
+        keep = [x for x in lst_used.read_text(encoding="utf-8").splitlines() if x.strip() and x.strip() != rel]
+        lst_used.write_text("\n".join(keep) + ("\n" if keep else ""), encoding="utf-8")
+        print(f"« {main_video.name} » vient de montage-joints : il y restera (pas retiré après le montage)")
     n = 0
     for f in files:
         if f == main_video or not f.exists():

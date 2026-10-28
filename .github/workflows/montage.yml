@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       source:
-        description: "Vidéo : chemin Drive (ex : gdrive:resultats/moi-video.mp4), lien Google Drive, lien direct ou tag de release (vide = dernière release « montage… »). 📌 Après le montage : titre du résultat ✅ = publie, ⚠ = regarde PLAN.md"
+        description: "Vidéo — VIDE = ta vidéo « moi… » déposée dans le dossier Drive montage-joints (avec tes extraits). Sinon : gdrive:dossier/moi.mp4, lien Drive ou tag de release. 📌 Après : titre ✅ = publie, ⚠ = regarde PLAN.md"
         required: false
         default: ""
       pieces_jointes:
@@ -250,7 +250,7 @@ jobs:
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
           MONTAGE_FINDER: ${{ inputs.finder || github.event.client_payload.finder }}
           MONTAGE_CHAINE: ${{ inputs.chaine }}
-          MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio }}
+          MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio || github.event.client_payload.voix_studio }}
         run: |
           mkdir -p fonts state
           if [ -n "${YT_COOKIES:-}" ]; then printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/yt-cookies.txt"; export YT_COOKIES_FILE="$RUNNER_TEMP/yt-cookies.txt"; fi
