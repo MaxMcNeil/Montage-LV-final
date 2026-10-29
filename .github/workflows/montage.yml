@@ -313,7 +313,10 @@ jobs:
         continue-on-error: true
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.CHAINE_CLIENT_ID || 'Iv23lis4ynP55Bsr8WhV' }}
+          # identifiant de TON app, réglé dans chaque dépôt : variable CHAINE_CLIENT_ID si tu l'as créée,
+          # sinon CHAINE_APP_ID (réglage d'origine, qui marchait) — jamais d'identifiant écrit en dur
+          client-id: ${{ vars.CHAINE_CLIENT_ID }}
+          app-id: ${{ vars.CHAINE_CLIENT_ID == '' && vars.CHAINE_APP_ID || '' }}
           private-key: ${{ secrets.CHAINE_APP_KEY }}
           owner: ${{ github.repository_owner }}
           repositories: Push-overlay
