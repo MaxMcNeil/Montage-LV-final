@@ -126,7 +126,7 @@ def ui(lang: str, key: str) -> str:
 # --- réglages par défaut (modifiables par le formulaire du workflow ou la description de la release) ----------
 DEFAULTS = {
     "couper_silences": "doux",      # doux | dynamique | non
-    "sous_titres": "oui",           # oui | non
+    "sous_titres": "non",           # non (défaut : jamais de sous-titres) | oui
     "recherche_presse": "oui",      # oui | non  (Vid-o-presse-finder)
     "max_inserts": "auto",          # extraits de presse / Finder au maximum : auto = selon la durée (règle du rythme)
     "duree_max_insert": "25",       # secondes max par vidéo insérée (coupée en fin de phrase)

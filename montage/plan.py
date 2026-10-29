@@ -98,6 +98,15 @@ def describe_attachments(att: list) -> str:
     return "\n".join(lines)
 
 
+def _chapters_rule(speech: float) -> str:
+    """Chapitres dès 2 min de parole (le 1er est couvert par l'accroche : 3 prévus = 2 bandeaux visibles)."""
+    if speech > 240:
+        return "3 à 7 chapitres"
+    if speech >= 120:
+        return "exactement 3 chapitres, bien répartis (le 1er à la phrase 0)"
+    return "aucun chapitre (liste vide)"
+
+
 def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
     speech = sents[-1]["t1"] - sents[0]["t0"] if sents else 0
     text = "\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"]}' for s in sents)
@@ -107,7 +116,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
     prompt = PROMPT.format(
         lang=lang, lang_note=" (arabe littéraire simple)" if lang == "ar" else "", sentences=text,
         attachments=describe_attachments(att), notes=(notes or "(aucune)")[:2000],
-        chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
+        chapters_rule=_chapters_rule(speech), every=every,
         max_insert=opts.get("duree_max_insert", 25),
         max_press=_max_press(opts, speech), per_video=opts.get("_per_video", 5))
     if not ai or not ai.ok:
@@ -122,7 +131,7 @@ def ask(ai, lang: str, sents: list, att: list, notes: str, opts: dict) -> dict:
             lang=lang, lang_note=" (arabe littéraire simple)" if lang == "ar" else "",
             sentences="\n".join(f'[{s["i"]}] ({tc(s["t0"])}) {s["text"][:110]}' for s in sents),
             attachments=describe_attachments(short), notes=(notes or "(aucune)")[:800],
-            chapters_rule=("3 à 7 chapitres" if speech > 240 else "aucun chapitre (liste vide)"), every=every,
+            chapters_rule=_chapters_rule(speech), every=every,
             max_insert=opts.get("duree_max_insert", 25),
             max_press=_max_press(opts, speech), per_video=opts.get("_per_video", 5))
         j = ai.json(prompt)

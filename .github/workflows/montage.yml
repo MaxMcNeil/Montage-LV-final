@@ -33,10 +33,10 @@ on:
         options: [défaut, doux, dynamique, non]
         default: défaut
       sous_titres:
-        description: "Sous-titres de ta voix"
+        description: "Sous-titres (non par défaut : aucun sous-titre, ni ta voix ni les extraits)"
         type: choice
-        options: [défaut, oui, non]
-        default: défaut
+        options: [non, oui]
+        default: non
       recherche_presse:
         description: "Recherche Finder SELON TA VIDÉO : sources de chaque affirmation (vidéos, presse, Telegram, Reddit). défaut/oui = oui ; non = aucune recherche"
         type: choice
