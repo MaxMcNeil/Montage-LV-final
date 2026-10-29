@@ -194,7 +194,9 @@ def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_fil
     cmd = [sys.executable, "-m", "quote_finder", "--target", p["target"], "--claim", p.get("claim", ""),
            "--type", p.get("type") if p.get("type") in ("personne", "pays", "entite", "sujet") else "auto",
            "--speakers", "auto",
-           "--authority", "moyenne" if p.get("type") == "personne" else "toutes",   # soupçons / rumeurs : toutes les voix "--max-videos", "5", "--max-articles", "8",
+           # soupçons / rumeurs : toutes les voix
+           "--authority", "moyenne" if p.get("type") == "personne" else "toutes",
+           "--max-videos", "8", "--max-articles", "10",
            "--langs", langs, "--max-minutes", str(minutes), "--out", str(out), "--batch-id", "lot", "--search-id", sid]
     log.info("Recherche presse : %s | %s", p["target"], p.get("claim", ""))
     res = {"clips": [], "articles": [], "posts": [], "error": "", "social": {}}
@@ -301,8 +303,29 @@ def download_section(url: str, a: float, b: float, dest: Path) -> Path | None:
             return f
         if "not a bot" not in last.lower() and "sign in" not in last.lower() and "403" not in last:
             break  # autre erreur (vidéo supprimée…) : inutile d'insister
+    if "youtu" not in url:   # Telegram, Reddit, médias : vidéo courte entière puis coupe exacte (certains refusent les sections)
+        full = dest.parent / (dest.name + "_full")
+        for f in dest.parent.glob(full.name + ".*"):
+            f.unlink()
+        try:
+            r = subprocess.run([sys.executable, "-m", "yt_dlp", "--no-warnings", "--no-playlist", "--max-filesize", "400M",
+                                "-f", "bv*[height<=1080]+ba/b[height<=1080]/b", "--merge-output-format", "mp4",
+                                "-o", f"{full}.%(ext)s", url], capture_output=True, text=True, timeout=300)
+            last = ((r.stderr or "").strip().splitlines() or [last])[-1][:160]
+            g = next(iter(p for p in dest.parent.glob(full.name + ".*") if not p.name.endswith(".part")), None)
+            if g is not None and g.stat().st_size > 20_000:
+                out = dest.parent / (dest.name + ".mp4")
+                rr = subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", f"{a:.2f}", "-i", str(g), "-t", f"{max(1.0, b - a):.2f}",
+                                     "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-c:a", "aac", "-b:a", "160k",
+                                     str(out)], capture_output=True, text=True, timeout=300)
+                g.unlink(missing_ok=True)
+                if rr.returncode == 0 and out.exists() and out.stat().st_size > 20_000:
+                    return out
+        except (subprocess.SubprocessError, OSError) as e:
+            last = str(e)
     log.warning("téléchargement refusé (%s) : %s", url, last)
     return None
+
 
 
 # ------------------------------------------------------------------ extraits insérés (pendant tes silences)
@@ -448,7 +471,7 @@ def quote_card_insert(c: dict, quote: str, orient: str, work: Path, name: str, l
 
 def press_clip(res: dict, orient: str, work: Path, idx: int, lang: str, ai, maxd: float, used: set) -> dict | None:
     """Meilleur extrait téléchargeable d'une recherche presse (essaie jusqu'à 4 candidats)."""
-    order = {"ia-affiné": 0, "sous-titres": 0, "ia": 1}
+    order = {"ia-affiné": 0, "sous-titres": 0, "ia": 1, "social": 1}
     cands = [c for c in res.get("clips", []) if c.get("source_url") and c.get("verdict") != "denial"]
     # à précision égale : d'abord les sources qui se téléchargent bien depuis GitHub (médias, Dailymotion…), YouTube
     # ensuite (il bloque souvent) — la pertinence reste le 1er critère

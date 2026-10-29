@@ -74,8 +74,11 @@ Autre façon : *Actions → Montage final → Run workflow* (lien Drive de la vi
   phrase), ton posé → plan large, débit rapide → plans plus courts. Jamais deux fois le même plan de suite.
 - **Recherche par affirmation** (`affirmations: auto` par défaut = selon la durée, ~1 par minute, de 4 à 30 ; ou un
   nombre ; `0` = aucune) : TOUTES les affirmations vérifiables de ta vidéo sont cherchées une par une (vidéos, presse, **Telegram**, **Reddit**), même si le lot Finder est utilisé (sans
-  refaire ce qu'il couvre déjà). PLAN.md liste chaque affirmation (trouvé / rien / pourquoi) et une section
-  **🛡 Ce qui te contredit** : à anticiper dans ta vidéo.
+  refaire ce qu'il couvre déjà). Vidéos, presse et Telegram/Reddit sont cherchés **en même temps** (chacun son temps
+  réservé, ~12 min par affirmation, 3 à la fois) : plus rien n'est sauté faute de temps. Les **vidéos postées sur
+  Telegram / Reddit** (et Dailymotion, Rumble, Odysee, archive.org, médias) servent d'extraits quand YouTube bloque
+  GitHub. PLAN.md liste chaque affirmation (trouvé / rien / pourquoi) avec, ligne 🔍, ce qui a été vu source par source,
+  et une section **🛡 Ce qui te contredit** : à anticiper dans ta vidéo.
 - **Rythme** (`rythme: oui` par défaut) : extraits vidéo, articles et photos comptent pareil. 5 premières minutes →
   un élément au moins toutes les 60 s ; ensuite un environ toutes les 2 min (jamais plus de 2 min 15 sans rien), et
   pas d'ajout automatique à moins de 1 min 30 du précédent. Tes « écoutez ça » et tes pièces jointes passent toujours.

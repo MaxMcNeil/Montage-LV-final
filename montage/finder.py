@@ -77,7 +77,8 @@ def load_lot(vpf: Path, which: str = "dernier", max_clips: int = 24, max_article
         searches = [live] + searches
     log.info("Vid-o-presse-finder : lot %s (%s jour(s)) — %d extrait(s), %d article(s) — %s", lot.name, age, len(clips),
              len(arts), "; ".join(searches))
-    return {"lot": lot.name, "age_days": age, "clips": clips[:max_clips], "articles": arts[:max_articles],
+    # vidéos postées sur Telegram / Reddit : téléchargeables depuis GitHub (contrairement à YouTube) → extraits possibles
+    return {"lot": lot.name, "age_days": age, "clips": clips[:max_clips] + social_clips(posts, 4), "articles": arts[:max_articles],
             "searches": searches, "origine": origine, "contre": contre[:12]}
 
 
@@ -86,6 +87,29 @@ def _f(v) -> float:
         return float(v or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def social_clips(posts: list, limit: int = 6) -> list:
+    """Messages Telegram / Reddit qui contiennent une VIDÉO → candidats d'extrait (même format que les déclarations
+    vidéo du Finder). Le texte du message sert de citation ; la coupe se fait ensuite sur des phrases complètes."""
+    out = []
+    for x in posts or []:
+        u = (x.get("video_url") or "").strip()
+        if not u or (x.get("position") or "") == "contre":
+            continue
+        try:
+            d = float(x.get("duree") or x.get("duration") or 0)
+        except (TypeError, ValueError):
+            d = 0.0
+        end = min(d, 60.0) if d > 3 else 45.0
+        txt = " ".join(str(x.get("texte") or x.get("text") or x.get("titre") or "").split())
+        plat = (x.get("social") or x.get("platform") or "").lower()
+        out.append({"source_url": u, "start": 0.0, "in": 0.0, "end": end, "out": end, "quote": txt[:300],
+                    "speaker": "", "channel": x.get("source") or x.get("channel") or plat, "platform": plat,
+                    "title": txt[:90], "uploaded": x.get("date") or "", "timing": "social", "score": x.get("audience", 0)})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def read_posts(files) -> list[dict]:
@@ -104,7 +128,8 @@ def read_posts(files) -> list[dict]:
                                 "source": f"{'Telegram' if plat == 'telegram' else 'Reddit'} · {r.get('chaine') or ''}".strip(" ·"),
                                 "domaine": "t.me" if plat == "telegram" else "reddit.com", "date": r.get("date") or "",
                                 "autorite": "0.3", "position": (r.get("position") or "").strip(), "social": plat,
-                                "audience": _f(r.get("audience"))})
+                                "audience": _f(r.get("audience")), "texte": txt,
+                                "video_url": (r.get("video_url") or "").strip(), "duree": _f(r.get("duree"))})
         except (OSError, csv.Error):
             continue
     out.sort(key=lambda r: -r["audience"])

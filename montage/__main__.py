@@ -20,7 +20,7 @@ from .ai import AI
 from .ass import ASS
 from .assets import (choose_bounds, clip_insert, is_youtube, quote_card_insert, describe_attachments, list_attachments, og_image, prepare_insert,
                      press_clip, press_search, thumbnail, wiki_image)
-from .finder import load_lot
+from .finder import load_lot, social_clips
 from .finder import match as finder_match
 from .media import face_center
 from .panels import open_image, render_panel
@@ -570,6 +570,22 @@ def main(argv=None) -> int:
     return 0
 
 
+def _search_detail(res: dict, soc_clips: list) -> str:
+    """Ce que la recherche a vu, source par source (PLAN.md) : plus jamais « rien » sans explication."""
+    clips = res.get("clips") or []
+    yt = sum(1 for c in clips if is_youtube(c))
+    parts = [f"vidéos : {len(clips)} (dont {yt} YouTube)"]
+    soc = res.get("social") or {}
+    parts.append(f"Telegram : {soc.get('telegram', '—')}")
+    parts.append(f"Reddit : {soc.get('reddit', '—')}")
+    if soc_clips:
+        parts.append(f"{len(soc_clips)} vidéo(s) postée(s) sur Telegram/Reddit")
+    parts.append(f"articles retenus : {len(res.get('articles') or [])}")
+    if res.get("error"):
+        parts.append(f"⚠ {res['error']}")
+    return " · ".join(parts)
+
+
 def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir, n_max: int,
                    n_sents: int = 10 ** 6, src_dur: float = 0.0) -> dict:
     """Une recherche Vid-o-presse-finder par affirmation (2 à la fois, budget total borné). Jamais bloquant :
@@ -586,8 +602,8 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
             it["status"] = "déjà couvert par le lot Vid-o-presse-finder"
             continue
         todo.append(it)
-    # budget proportionnel au nombre d'affirmations (2 recherches à la fois, ~7 min chacune), plafonné à 2 h 30
-    budget_end = time.time() + min(150, 12 + 4.0 * len(todo)) * 60
+    # budget proportionnel au nombre d'affirmations (3 recherches à la fois, ~12 min chacune), plafonné à 2 h 30
+    budget_end = time.time() + min(150, 15 + 5.0 * len(todo)) * 60
     # garde-fou : le job GitHub est coupé net à 340 min (tout serait perdu). On garde toujours le temps du rendu
     # (~1,6 × la durée de la vidéo), du son, du contrôle et de l'envoi (25 min) : les recherches s'adaptent.
     try:
@@ -623,8 +639,8 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
             qfiles.append(qf)
         except OSError:
             qf = None
-        return it, press_search(it["p"], lang, work, minutes=max(4.0, min(8.0, left - 3)), quota_file=qf)
-    with ThreadPoolExecutor(max_workers=2) as ex:
+        return it, press_search(it["p"], lang, work, minutes=max(6.0, min(12.0, left - 3)), quota_file=qf)
+    with ThreadPoolExecutor(max_workers=3) as ex:
         for it, res in ex.map(go, enumerate(todo)):
             results[id(it)] = res
     try:   # quotas consommés par chaque recherche → état commun (les clés épuisées ne seront pas réessayées)
@@ -650,14 +666,22 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
         info["contre"] += [dict(x, claim=p) for x in posts if x.get("position") == "contre"]
         arts = [a for a in arts if (a.get("position") or "") != "contre" and a.get("titre")]
         posts = [x for x in posts if x.get("position") != "contre"]
+        soc_clips = social_clips(posts)
         it["found"] = (len(res.get("clips") or []), len(arts), len(posts))
-        info.setdefault("clips_pool", []).extend(res.get("clips") or [])
+        it["detail"] = _search_detail(res, soc_clips)
+        info.setdefault("clips_pool", []).extend((res.get("clips") or []) + soc_clips)
         if res.get("error") and not any(it["found"]):
             it["status"] = f"⚠ {res['error']}"
             continue
         n_other = sum(1 for i in inserts if not (i.get("attachment") or i.get("kw") is not None))
-        if n_other < max_ins and res.get("clips"):
-            asset = press_clip(res, orient, work, k, lang, ai, maxd, used)
+        if n_other < max_ins and (res.get("clips") or soc_clips):
+            asset = press_clip(res, orient, work, k, lang, ai, maxd, used) if res.get("clips") else None
+            if not asset and soc_clips:   # YouTube bloqué : vidéo postée sur Telegram / Reddit (téléchargeable)
+                asset = clip_insert(soc_clips[:3], orient, work, f"soc{k}", lang, ai, maxd, used)
+                if not asset:
+                    it["detail"] += " ; vidéos Telegram/Reddit essayées mais non téléchargées"
+            elif not asset:
+                it["detail"] += " ; extraits vidéo trouvés mais aucun téléchargeable depuis GitHub (YouTube bloque)"
             if asset:
                 cr = asset["credit"]
                 asset["source"] = f"{cr.get('title')} — {cr.get('source')} ({cr.get('url')})"
@@ -1198,6 +1222,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             nv, na, ns = it["found"]
             L.append(f"- {when} « {p['target']}{' — ' + p['claim'] if p.get('claim') else ''} » → {it['status']}"
                      + (f" ({nv} vidéo(s), {na} article(s), {ns} message(s) trouvés)" if any(it["found"]) else ""))
+            if it.get("detail"):
+                L.append(f"  - 🔍 {it['detail']}")
         soc = press_info.get("social") or {}
         if soc:
             L.append(f"- Telegram : {soc.get('telegram', '—')} · Reddit : {soc.get('reddit', '—')}")
