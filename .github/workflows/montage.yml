@@ -38,7 +38,7 @@ on:
         options: [défaut, oui, non]
         default: défaut
       recherche_presse:
-        description: "Chercher extraits officiels et articles (Vid-o-presse-finder)"
+        description: "Recherche Finder SELON TA VIDÉO : sources de chaque affirmation (vidéos, presse, Telegram, Reddit). défaut/oui = oui ; non = aucune recherche"
         type: choice
         options: [défaut, oui, non]
         default: défaut
@@ -72,7 +72,7 @@ on:
         options: [auto, fr, ar, it, en, non]
         default: auto
       finder:
-        description: "Le montage cherche TOUJOURS lui-même les sources de chaque affirmation de ta vidéo (vidéos, presse, Telegram, Reddit). oui = EN PLUS le dernier lot de Vid-o-presse-finder ; osint = EN PLUS le dernier lot lancé par OSINT-teleprompter- ; non = sans lot"
+        description: "Reprendre EN PLUS un lot déjà lancé par toi : oui = dernier lot de Vid-o-presse-finder ; osint = dernier lot d'OSINT-teleprompter- ; non = aucun lot (la recherche selon ta vidéo dépend du menu recherche_presse)"
         type: choice
         options: [oui, osint, non]
         default: oui
