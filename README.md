@@ -148,8 +148,11 @@ Pour couper : `rythme: non` dans les consignes ou la description de la release.
 
 ## ⚡ Ouverture choc (facultatif)
 
-**Activée par défaut** (release, *Run workflow* et chaîne automatique fond vert → montage → Shorts). Sans vidéo jointe,
-la vidéo commence normalement. Pour la couper : menu **ouverture_choc** → `non`, ou `ouverture_choc: non` dans la description
+**Activée par défaut** (release, *Run workflow* et chaîne automatique fond vert → montage → Shorts).
+**Sans vidéo jointe**, l'ouverture est prise parmi les **déclarations vidéo trouvées par la recherche** (dernier lot
+Vid-o-presse-finder + recherche selon ta vidéo) : l'IA classe les plus fortes **en rapport avec ton sujet**, la première
+qui se télécharge vraiment est utilisée (4 à 12 s, sous-titrée, source affichée), jamais une vidéo déjà insérée ailleurs.
+Rien de solide, ou vidéos bloquées → la vidéo commence normalement. PLAN.md dit toujours ce qui a été fait (ligne ⚡). Pour la couper : menu **ouverture_choc** → `non`, ou `ouverture_choc: non` dans la description
 d'une release ou dans les consignes. La vidéo finale **commence** alors par le passage le plus fort / choquant
 (4 à 12 s, phrases complètes, sous-titré) de ta **vidéo jointe** (release ou Drive), qui surgit du noir ; puis tu
 apparais et l'accroche s'affiche. L'IA choisit le passage en lisant la transcription de l'extrait ; un passage imposé

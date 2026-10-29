@@ -47,7 +47,7 @@ on:
         required: false
         default: ""
       ouverture_choc:
-        description: "Commencer par le passage le plus choquant de la vidéo jointe (release / Drive) — sans vidéo jointe : début normal"
+        description: "Commencer par le passage le plus choquant : de ta vidéo jointe (release / Drive), sinon d'une vidéo trouvée par la recherche ; rien de solide = début normal"
         type: choice
         options: [oui, non]
         default: oui

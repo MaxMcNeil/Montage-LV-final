@@ -217,7 +217,7 @@ def main(argv=None) -> int:
     if opts.get("ouverture_choc") == "oui":
         opener = pick_opener(ai, att, lang, orient, work, plan.get("hook", ""), label_for)
         if opener is None:
-            log.info("Ouverture choc : aucune vidéo jointe → la vidéo commence normalement")
+            log.info("Ouverture choc : aucune vidéo jointe → une vidéo trouvée par la recherche sera essayée")
         else:
             used.setdefault(opener["attachment"], []).append(opener["clip"])
     for k, ins in enumerate(plan["inserts"]):
@@ -353,6 +353,17 @@ def main(argv=None) -> int:
             kw_press_fallback(ai, words, sents, kw_info, inserts, pool_clips, orient, work, lang, maxd)
         except Exception as e:  # noqa: BLE001 - un repli raté ne bloque jamais le montage
             log.warning("repli « écoutez ça » par la presse abandonné : %s", e)
+    # 4c-ter) ouverture choc SANS vidéo jointe : la déclaration la plus forte parmi les vidéos trouvées
+    #         (dernier lot Finder + recherche selon ta vidéo). Rien de solide → la vidéo commence normalement.
+    if opts.get("ouverture_choc") == "oui" and opener is None:
+        try:
+            opener, plan["_opener_note"] = pick_found_opener(ai, pool_clips, inserts, lang, orient, work,
+                                                             plan.get("hook", "") or plan.get("title", ""))
+        except Exception as e:  # noqa: BLE001 - jamais bloquant
+            opener, plan["_opener_note"] = None, f"pas d'ouverture choc (erreur : {type(e).__name__})"
+            log.warning("ouverture choc par une vidéo trouvée abandonnée : %s", e)
+    elif opts.get("ouverture_choc") == "oui":
+        plan["_opener_note"] = "ouverture choc : ta vidéo jointe"
     # limite : seulement les extraits de presse / Finder ; tes vidéos jointes et les mots-clés passent toujours
     mine_ins = [i for i in inserts if i.get("attachment") or i.get("kw") is not None]
     other = [i for i in inserts if not (i.get("attachment") or i.get("kw") is not None)]
@@ -933,6 +944,73 @@ Choisis UN passage de 4 à 12 secondes, qui commence et finit sur une phrase com
 Réponds en JSON : {{"video": "id", "start": secondes, "end": secondes, "why": "pourquoi c'est le plus fort"}}."""
 
 
+FOUND_OPENER_PROMPT = """Une vidéo face caméra (langue « {lang} ») doit commencer par une OUVERTURE CHOC : la déclaration la
+plus forte, la plus choquante ou la plus saisissante parmi les déclarations vidéo ci-dessous (trouvées par une recherche
+sur le sujet), compréhensible seule, EN RAPPORT DIRECT avec le sujet, qui donne envie de rester.
+Sujet de la vidéo : {hook}
+
+{clips}
+
+Classe au plus 4 déclarations, de la plus forte à la moins forte, en n'en gardant AUCUNE hors sujet (liste vide si rien
+ne convient). Réponds en JSON : {{"order": [numéros], "why": "pourquoi la 1re est la plus forte"}}."""
+
+
+def pick_found_opener(ai, pool: list, inserts: list, lang: str, orient: str, work: Path, hook: str):
+    """Ouverture choc sans vidéo jointe : déclaration vidéo trouvée (lot Finder / recherche), réellement téléchargée.
+    Renvoie (extrait prêt ou None, phrase pour PLAN.md). Jamais deux fois la même vidéo que les extraits déjà placés."""
+    if not pool:
+        return None, "pas d'ouverture choc : aucune vidéo jointe et aucune déclaration vidéo trouvée par la recherche"
+    taken = {((i.get("asset") or {}).get("credit") or {}).get("url") for i in inserts}
+    seen, cands = set(), []
+    for c in pool:
+        url, q = c.get("source_url"), (c.get("quote") or "").strip()
+        try:
+            ln = float(c.get("out", c.get("end", 0))) - float(c.get("in", c.get("start", 0)))
+        except (TypeError, ValueError):
+            continue
+        if not url or not q or ln < 3 or url in taken or (url, round(float(c.get("start", 0) or 0))) in seen:
+            continue
+        seen.add((url, round(float(c.get("start", 0) or 0))))
+        cands.append(c)
+    if not cands:
+        return None, "pas d'ouverture choc : aucune déclaration vidéo utilisable (déjà placées ou sans citation)"
+    cands = cands[:40]
+    order, why = [], ""
+    if ai and getattr(ai, "ok", False):
+        txt = "\n".join(f'{k}. {c.get("speaker") or "?"} ({c.get("channel") or c.get("platform") or "?"}) : '
+                        f'« {" ".join((c.get("quote") or "").split()[:45])} »' for k, c in enumerate(cands))
+        j = ai.json(FOUND_OPENER_PROMPT.format(lang=lang, hook=hook or "(voir les déclarations)", clips=txt))
+        if isinstance(j, dict):
+            for v in j.get("order") or []:
+                try:
+                    k = int(v)
+                except (TypeError, ValueError):
+                    continue
+                if 0 <= k < len(cands) and k not in order:
+                    order.append(k)
+            why = str(j.get("why") or "")
+        if not order:
+            return None, "pas d'ouverture choc : aucune déclaration trouvée assez forte et en rapport avec ton sujet"
+    else:
+        order = [0]
+    t_end = time.time() + 8 * 60                       # garde-fou : jamais plus de 8 min pour l'ouverture
+    for n, k in enumerate(order[:4]):
+        if time.time() > t_end:
+            break
+        c = cands[k]
+        asset = clip_insert([c], orient, work, f"opener{n}", lang, ai, 12.0, set())
+        if asset:
+            cr = asset.get("credit") or {}
+            asset["opener_found"] = True
+            asset["source"] = (f"OUVERTURE CHOC — vidéo trouvée — {cr.get('title') or ''} — {cr.get('source') or ''} "
+                               f"({cr.get('url') or ''})" + (f" — {why}" if why and n == 0 else ""))
+            log.info("Ouverture choc : déclaration trouvée %s", cr.get("url"))
+            who = c.get("speaker") or cr.get("source") or "vidéo trouvée"
+            return asset, f"ouverture choc : déclaration de {who} trouvée par la recherche ({cr.get('url') or ''})"
+    return None, ("pas d'ouverture choc : les déclarations choisies n'ont pas pu être téléchargées "
+                  "(vidéo bloquée ou indisponible)")
+
+
 def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str, label_for=None):
     """Passage le plus choquant (4 à 12 s) des vidéos jointes, préparé comme un extrait inséré."""
     vids = [x for x in att if x["kind"] == "video" and x.get("duration", 0) >= 3]
@@ -1041,6 +1119,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         L.append(f"- 🎬 Mise en scène par la voix : {voice_info['why']}"
                  + (f" → {st.get('serre', 0)} plan(s) serré(s), {st.get('moyen', 0)} moyen(s), {st.get('large', 0)} large(s), "
                     f"{st.get('punch', 0)} coupe(s) sur un ton qui monte" if voice_info.get("on") else ""))
+    if plan.get("_opener_note"):
+        L.append(f"- ⚡ {plan['_opener_note']}")
     if plan.get("hook"):
         h0 = segs[0].dur if segs and segs[0].kind == "insert" and segs[0].insert.get("opener") else 0.0
         L.append(f"- Accroche ({tc(h0)} → {tc(h0 + 3.5)}) : « {plan['hook']} »")
