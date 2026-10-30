@@ -127,6 +127,7 @@ class AI:
         self.errors: list[str] = []     # échecs réels (aucune source n'a répondu)
         self.recovered = 0              # incidents rattrapés par une autre source (sans effet sur le montage)
         self.waited = 0
+        self.by_source: dict[str, int] = {}   # qui a répondu : Gemini / relais (Groq, Cerebras, OpenRouter) / aucun
         try:
             from quote_finder.llm import LLMRouter  # moteur de Vid-o-presse-finder (cloné par le workflow)
             r = LLMRouter.from_env()
@@ -146,10 +147,22 @@ class AI:
     def ok(self) -> bool:
         return bool(self.router or self.mini)
 
+    def _gem_used(self) -> int:
+        try:
+            return sum((self.router.gemini.used or {}).values()) if self.router and self.router.gemini else 0
+        except Exception:  # noqa: BLE001
+            return 0
+
+    def _count(self, src: str) -> None:
+        self.by_source[src] = self.by_source.get(src, 0) + 1
+
     def _once(self, prompt, image, media_key, errs):
         if self.router:
             try:
-                return self.router.generate_json(prompt, inline_media=image, media_key=media_key)
+                g0 = self._gem_used()
+                r = self.router.generate_json(prompt, inline_media=image, media_key=media_key)
+                self._count("Gemini" if self._gem_used() > g0 else "relais")
+                return r
             except Exception as e:  # noqa: BLE001
                 errs.append(str(e)[:160])
                 log.warning("IA (moteur principal) : %s", str(e)[:160])
@@ -157,7 +170,9 @@ class AI:
             if isinstance(c, _MiniGroq) and len(prompt) > 18_000:
                 continue   # offre gratuite Groq ≈ 8 000 jetons par requête : une requête aussi longue serait refusée (413)
             try:
-                return c.json(prompt, image=image)
+                r = c.json(prompt, image=image)
+                self._count("Gemini" if isinstance(c, _MiniGemini) else "relais Groq")
+                return r
             except Exception as e:  # noqa: BLE001
                 errs.append(str(e)[:160])
                 log.warning("IA (%s) : %s", type(c).__name__, str(e)[:160])
@@ -177,10 +192,29 @@ class AI:
             self.waited += 45
             r = self._once(prompt, image, media_key, errs)
         if r is None:
+            self._count("sans réponse")
             self.errors.extend(errs)
         elif errs:
             self.recovered += len(errs)
         return r
+
+    def usage_line(self) -> str:
+        """« IA : 34 demandes — Gemini 31 (gemini-2.5-flash 25, gemini-2.5-flash-lite 6), relais 3 » (PLAN.md)."""
+        if not self.calls:
+            return "IA : aucune demande"
+        parts = []
+        for k in ("Gemini", "relais", "relais Groq", "sans réponse"):
+            n = self.by_source.get(k, 0)
+            if not n:
+                continue
+            if k == "Gemini" and self.router and getattr(self.router, "gemini", None):
+                det = ", ".join(f"{m} {c}" for m, c in sorted((self.router.gemini.used or {}).items(), key=lambda x: -x[1]))
+                parts.append(f"Gemini {n}" + (f" ({det})" if det else ""))
+            elif k == "relais":
+                parts.append(f"relais Groq / Cerebras / OpenRouter {n}")
+            else:
+                parts.append(f"{k} {n}")
+        return f"IA : {self.calls} demande(s) — " + ", ".join(parts)
 
     def save_quota(self):
         try:

@@ -585,6 +585,7 @@ def main(argv=None) -> int:
         tagc = f"montage-lv-final;logo={orient}-haut-droite;chaine={prof_.get('code', '')};langue={lang}"
     final = mux(vid, aud, outd / "montage-final.mp4", comment=tagc)
     log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
+    log.info("%s", ai.usage_line())
 
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
     try:
@@ -1352,6 +1353,10 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     dropped = [v for v in plan["visuals"] if v.get("asset") and not any(c["v"] is v for c in chosen)]
     if dropped:
         L.append(f"\nVisuels écartés pour garder l'écran respirable : {len(dropped)}")
+    try:
+        L.append(f"\n🤖 {ai.usage_line()} (transcription par Groq / Whisper : non comptée, elle n'utilise pas Gemini)")
+    except Exception:  # noqa: BLE001
+        pass
     if ai.errors:
         L.append(f"\n<details><summary>⚠ Incidents IA ({len(ai.errors)}) — demandes restées sans réponse (aucune source "
                  f"disponible)</summary>\n\n" + "\n".join(f"- {e}" for e in ai.errors[:15]) + "\n</details>")
