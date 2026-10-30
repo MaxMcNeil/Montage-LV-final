@@ -11,7 +11,8 @@ def test_search_always_off_whatever_asked(monkeypatch, tmp_path):
     monkeypatch.setenv("MONTAGE_RECHERCHE_PRESSE", "oui")
     monkeypatch.setenv("MONTAGE_FINDER", "oui")
     o = M.options(str(f))
-    assert (o["recherche_presse"], o["finder"], o["images_web"]) == ("non", "non", "non") and o["_sans_recherche"]
+    assert (o["recherche_presse"], o["finder"]) == ("non", "non") and o["_sans_recherche"]
+    assert o["images_web"] == "oui"                                   # Wikimedia : sans Gemini, gardé
     assert M.options(None)["finder"] == "non"                         # défaut aussi
     monkeypatch.setenv("MONTAGE_RECHERCHE_AUTORISEE", "oui")          # seul moyen de réactiver
     assert M.options(str(f))["recherche_presse"] == "oui"

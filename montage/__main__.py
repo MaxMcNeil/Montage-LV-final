@@ -76,13 +76,14 @@ def options(path: str | None) -> dict:
             log.info("Chaîne : sous-titres de la vidéo montée forcés à « non » (verrou)")
         o["sous_titres"] = "non"
     # 🔒 VERROU RECHERCHE : tu fournis toi-même articles, vidéos et photos (Releases / montage-joints). Gemini ne sert
-    # plus JAMAIS à chercher (presse, lot Finder, Telegram, Reddit, photos Wikimedia, ouverture par une vidéo trouvée) :
+    # plus JAMAIS à chercher (presse, lot Finder, Telegram, Reddit, ouverture par une vidéo trouvée) :
     # une seule clé Gemini suffit pour le reste (plan, chapitres, placement de TES pièces jointes, Shorts).
     # Seul moyen de réactiver : variable de dépôt MONTAGE_RECHERCHE_AUTORISEE = oui.
     if (os.environ.get("MONTAGE_RECHERCHE_AUTORISEE") or "").strip().lower() != "oui":
-        if o.get("recherche_presse") != "non" or o.get("finder") != "non" or o.get("images_web") != "non":
-            log.info("Recherche automatique désactivée (verrou) : seulement tes articles, vidéos et photos")
-        o["recherche_presse"], o["finder"], o["images_web"] = "non", "non", "non"
+        if o.get("recherche_presse") != "non" or o.get("finder") != "non":
+            log.info("Recherche automatique désactivée (verrou) : seulement tes articles et vidéos (+ photos Wikimedia)")
+        # les photos libres Wikimedia restent permises : elles passent par Wikipédia, jamais par Gemini
+        o["recherche_presse"], o["finder"] = "non", "non"
         o["_sans_recherche"] = True
     return o
 
@@ -1263,8 +1264,9 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             if a_ is not None and b_ is not None and b_ > a_:
                 L.append(f"  - ⚠ entre {tc(a_)} et {tc(b_)} : pas d'extrait — " + " ; ".join(h["why"][:3]))
     if opts.get("_sans_recherche"):
-        L.append("- 🔒 Recherche automatique désactivée (presse, Finder, Telegram, Reddit, photos Wikimedia) : seuls TES "
-                 "articles, vidéos et photos sont montés ; Gemini ne sert qu'au plan, aux chapitres et au placement.")
+        L.append("- 🔒 Recherche automatique désactivée (presse, Finder, Telegram, Reddit) : TES articles, vidéos et photos "
+                 "sont montés, plus des photos libres Wikimedia des personnes / lieux cités (après les tiennes, sans "
+                 "Gemini) ; Gemini ne sert qu'au plan, aux chapitres et au placement.")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         if lot_info.get("origine"):
