@@ -122,6 +122,7 @@ jobs:
       # IA gratuite : mêmes secrets que Vid-o-presse-finder (rotation des clés, bascule automatique)
       GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
       GEMINI_API_KEYS_PLUS: ${{ secrets.GEMINI_API_KEYS_PLUS }}
+      GEMINI_API_KEYS_PARTAGE: ${{ secrets.GEMINI_API_KEYS_PARTAGE }}   # clés Gemini de Vid-o-presse-finder
       GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
       GROQ_API_KEYS_PLUS: ${{ secrets.GROQ_API_KEYS_PLUS }}
       CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}

@@ -135,7 +135,7 @@ class AI:
                 log.info("IA : moteur Vid-o-presse-finder (rotation des clés et des modèles)")
         except Exception as e:  # noqa: BLE001
             log.info("IA : moteur Vid-o-presse-finder indisponible (%s) → client intégré", str(e)[:120])
-        g = keys("GEMINI_API_KEYS", "GEMINI_API_KEY", "GEMINI_API_KEYS_PLUS")
+        g = keys("GEMINI_API_KEYS", "GEMINI_API_KEY", "GEMINI_API_KEYS_PLUS", "GEMINI_API_KEYS_PARTAGE")
         if g:
             self.mini.append(_MiniGemini(g))
         gq = groq_keys()
