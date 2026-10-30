@@ -37,17 +37,8 @@ on:
         type: choice
         options: [non, oui]
         default: non
-      recherche_presse:
-        description: "Recherche Finder SELON TA VIDÉO : sources de chaque affirmation (vidéos, presse, Telegram, Reddit). défaut/oui = oui ; non = aucune recherche"
-        type: choice
-        options: [défaut, oui, non]
-        default: défaut
-      max_inserts:
-        description: "Extraits vidéo de presse / Finder au maximum — VIDE = auto, selon la durée de ta vidéo (tes vidéos jointes passent toujours)"
-        required: false
-        default: ""
       ouverture_choc:
-        description: "Commencer par le passage le plus choquant : de ta vidéo jointe (release / Drive), sinon d'une vidéo trouvée par la recherche ; rien de solide = début normal"
+        description: "Commencer par le passage le plus choquant de ta vidéo jointe (release / Drive), dans un cadre à côté de toi (jamais plein écran) ; aucune vidéo jointe = début normal"
         type: choice
         options: [oui, non]
         default: oui
@@ -71,11 +62,6 @@ on:
         type: choice
         options: [auto, fr, ar, it, en, non]
         default: auto
-      finder:
-        description: "Reprendre EN PLUS un lot déjà lancé par toi : oui = dernier lot de Vid-o-presse-finder ; osint = dernier lot d'OSINT-teleprompter- ; non = aucun lot (la recherche selon ta vidéo dépend du menu recherche_presse)"
-        type: choice
-        options: [oui, osint, non]
-        default: oui
       chaine_shorts:
         description: "🔗 Enchaîner les Shorts (Push-overlay) après ce montage"
         type: choice
@@ -255,12 +241,9 @@ jobs:
           SRC_TAG: ${{ steps.fetch.outputs.tag || github.event.release.tag_name }}
           MONTAGE_COUPER_SILENCES: ${{ inputs.couper_silences }}
           MONTAGE_SOUS_TITRES: ${{ inputs.sous_titres }}
-          MONTAGE_RECHERCHE_PRESSE: ${{ inputs.recherche_presse }}
-          MONTAGE_MAX_INSERTS: ${{ inputs.max_inserts }}
           MONTAGE_OUVERTURE_CHOC: ${{ inputs.ouverture_choc }}
           MONTAGE_MOTS_CLES: ${{ inputs.mots_cles }}
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
-          MONTAGE_FINDER: ${{ inputs.finder || github.event.client_payload.finder }}
           MONTAGE_CHAINE: ${{ inputs.chaine }}
           MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio || github.event.client_payload.voix_studio }}
         run: |

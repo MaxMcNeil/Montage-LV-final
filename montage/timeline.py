@@ -185,7 +185,7 @@ def tighten_inserts(pts: list, keep: list, words: list, sil: list, voice_free=No
 
 
 def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None,
-             sil=None, voice_free=None, energy=None, stats=None) -> tuple[list, list]:
+             sil=None, voice_free=None, energy=None, stats=None, outro=None, outro_dur: float = 5.5) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -312,6 +312,18 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
             c["v"]["moved"] = round(st - c["st"], 1)
         chosen.append({"v": c["v"], "st": q(st), "en": q(en)})
         cover += en - st
+    # carte de fin : toi dans ton cadre + « merci / abonnez-vous » et le logo dans la carte à côté (jamais sur ton
+    # visage) pendant tes dernières secondes ; elle a priorité sur tout autre média à cet endroit
+    if outro is not None:
+        en = last_t
+        for p in pts:   # extrait tout à la fin : la carte se place juste avant
+            if en - outro_dur - 1.0 < p["t"] < en + 0.6:
+                en = min(en, p["t"] - 0.6)
+        st = max(first_t + 4.0, en - outro_dur)
+        if en - st >= 3.0:
+            chosen = [c for c in chosen if c["en"] + 1.0 <= st]
+            chosen.append({"v": outro, "st": q(st), "en": q(en)})
+            outro["placed"] = True
     chosen.sort(key=lambda c: c["st"])
     for i, c in enumerate(chosen):
         c["side"] = "left" if i % 2 == 0 else "right"

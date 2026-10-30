@@ -352,9 +352,7 @@ def chaine():
     vid = os.environ.get("CHAINE_VIDEO_ID", "").strip()
     cid = os.environ.get("CHAINE_ID", "").strip()
     joints = (os.environ.get("CHAINE_JOINTS") or "montage-joints").strip().strip("/")
-    finder = (os.environ.get("CHAINE_FINDER") or "oui").strip().lower()
-    finder = "non" if finder in ("non", "no", "false", "0") else "dernier"
-    print(f"🔗 Chaîne {cid} : vidéo Drive {vid} · synchro Finder : {'non' if finder == 'non' else 'oui'}")
+    print(f"🔗 Chaîne {cid} : vidéo Drive {vid} · pièces jointes : dossier « {joints} »")
     for f in ("joints-utilises.txt", "joints-liste.txt"):
         (IN / f).unlink(missing_ok=True)
     rem = rclone_remote()
@@ -408,10 +406,10 @@ def chaine():
     shutil.rmtree(RAW, ignore_errors=True)
     notes, cuts = parse_cuts(os.environ.get("NOTES") or "")
     notes, opts, _ = parse_body(notes)
-    opts["finder"] = finder
-    # ton choix « Vid-o-presse-finder » de la chaîne : oui = recherche par affirmation + dernier lot ; non = AUCUNE recherche
-    opts["recherche_presse"] = "non" if finder == "non" else "oui"
-    print(f"Vid-o-presse-finder : {'aucune recherche (choix non)' if finder == 'non' else 'recherche par affirmation + dernier lot'}")
+    # 🔒 recherche automatique désactivée (verrou dans le montage) : seulement tes fichiers de « montage-joints »
+    opts["finder"] = "non"
+    opts["recherche_presse"] = "non"
+    print("Recherche automatique : désactivée (tes photos, vidéos et captures d'articles uniquement)")
     (IN / "notes.txt").write_text(notes, encoding="utf-8")
     (IN / "warnings.txt").write_text("\n".join(WARN), encoding="utf-8")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")

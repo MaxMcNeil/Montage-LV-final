@@ -55,3 +55,19 @@ def test_opener_never_full_screen(tmp_path, o):
     assert 0.08 < red.mean() < 0.6                             # l'extrait est là, mais loin du plein écran
     blue = (img[..., 2] > img[..., 0] + 30)
     assert blue.mean() > 0.15                                  # toi (ton image) bien visible à côté
+
+
+def test_photo_window_is_fully_transparent(tmp_path):
+    """L'ombre de la carte ne doit jamais assombrir la photo (fenêtre totalement transparente)."""
+    from PIL import Image
+    from montage.panels import render_panel
+    img = Image.new("RGB", (800, 600), (138, 32, 32))
+    for kind in ("person", "attachment", "article", "outro"):
+        data = {"label": "Titre", "sublabel": "Source", "text": "Merci", "image": img, "logo": img}
+        a = render_panel(kind, 904, 888, data, tmp_path, kind)
+        if not a.get("hole"):
+            continue
+        hx, hy, hw, hh = a["hole"]
+        fr = Image.open(a["frame"]).convert("RGBA")
+        assert fr.getpixel((hx + hw // 2, hy + hh // 2))[3] == 0, kind
+        assert fr.getpixel((hx + 30, hy + 30))[3] == 0, kind

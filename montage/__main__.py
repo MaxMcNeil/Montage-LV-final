@@ -75,6 +75,15 @@ def options(path: str | None) -> dict:
         if o.get("sous_titres") != "non":
             log.info("Chaîne : sous-titres de la vidéo montée forcés à « non » (verrou)")
         o["sous_titres"] = "non"
+    # 🔒 VERROU RECHERCHE : tu fournis toi-même articles, vidéos et photos (Releases / montage-joints). Gemini ne sert
+    # plus JAMAIS à chercher (presse, lot Finder, Telegram, Reddit, photos Wikimedia, ouverture par une vidéo trouvée) :
+    # une seule clé Gemini suffit pour le reste (plan, chapitres, placement de TES pièces jointes, Shorts).
+    # Seul moyen de réactiver : variable de dépôt MONTAGE_RECHERCHE_AUTORISEE = oui.
+    if (os.environ.get("MONTAGE_RECHERCHE_AUTORISEE") or "").strip().lower() != "oui":
+        if o.get("recherche_presse") != "non" or o.get("finder") != "non" or o.get("images_web") != "non":
+            log.info("Recherche automatique désactivée (verrou) : seulement tes articles, vidéos et photos")
+        o["recherche_presse"], o["finder"], o["images_web"] = "non", "non", "non"
+        o["_sans_recherche"] = True
     return o
 
 
@@ -363,7 +372,9 @@ def main(argv=None) -> int:
             log.warning("repli « écoutez ça » par la presse abandonné : %s", e)
     # 4c-ter) ouverture choc SANS vidéo jointe : la déclaration la plus forte parmi les vidéos trouvées
     #         (dernier lot Finder + recherche selon ta vidéo). Rien de solide → la vidéo commence normalement.
-    if opts.get("ouverture_choc") == "oui" and opener is None:
+    if opts.get("ouverture_choc") == "oui" and opener is None and opts.get("_sans_recherche"):
+        plan["_opener_note"] = "pas d'ouverture choc : aucune vidéo jointe (la recherche automatique est désactivée)"
+    elif opts.get("ouverture_choc") == "oui" and opener is None:
         try:
             opener, plan["_opener_note"] = pick_found_opener(ai, pool_clips, inserts, lang, orient, work,
                                                              plan.get("hook", "") or plan.get("title", ""))
@@ -464,8 +475,24 @@ def main(argv=None) -> int:
         voice_info = {"why": why, "on": energy is not None}
         log.info("Mise en scène : %s", why)
     zstats: dict = {}
+    outro_v = None
+    if opts["fin"] != "non" and sents:
+        try:   # carte de fin à côté de toi (jamais sur ton visage) : logo animé + merci + abonnez-vous
+            lg_ = None
+            if brand.get("end_src"):   # transparence du logo gardée (sinon carré blanc autour)
+                from PIL import Image as _Im
+                lg_ = _Im.open(brand["end_src"]).convert("RGBA")
+            outro_v = {"kind": "outro", "s0": len(sents) - 1, "s1": len(sents) - 1, "trigger": "", "priority": 0,
+                       "label": plan.get("outro") or C.ui(lang, "outro"), "source": "carte de fin",
+                       "asset": render_panel("outro", pw, ph, {"text": plan.get("outro") or C.ui(lang, "outro"),
+                                                               "sublabel": C.ui(lang, "sub"), "logo": lg_},
+                                             pdir, "outro")}
+        except Exception as e:  # noqa: BLE001 - repli : bandeau de fin texte
+            log.warning("carte de fin (cadre) impossible : %s → bandeau texte", e)
+            outro_v = None
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
-                            opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats)
+                            opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats,
+                            outro=outro_v)
     if voice_info is not None:
         voice_info["stats"] = zstats
     if kw_info:  # mots-clés : extrait réellement placé ? (sinon la raison est notée)
@@ -521,7 +548,9 @@ def main(argv=None) -> int:
         emph = {norm(w) for ws in plan.get("emphasis", {}).values() for w in ws for w in [w] if norm(w)}
         emph = {x for w in emph for x in w.split() if len(x) > 2}
         sub.captions(words, segs, emph)
-    if opts["fin"] != "non":
+    outro_t = [s_.out0 for s_ in segs if s_.kind == "split" and s_.panel and s_.panel["v"] is outro_v][:1] \
+        if outro_v is not None and outro_v.get("placed") else []
+    if opts["fin"] != "non" and not outro_t:   # repli : bandeau texte (la carte n'a pas pu être placée)
         sub.outro(total, plan.get("outro") or C.ui(lang, "outro"), C.ui(lang, "sub"),
                   logo=bool(brand.get("end_src")) and orient == "h")
         try:
@@ -539,6 +568,7 @@ def main(argv=None) -> int:
     R.BRAND = brand_check(brand, work / "chaine")
     R.BRAND_FAILS.clear()
     R.OPENER_NOTES.clear()
+    R.INSERT_NOTES.clear()
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
     audio_note = ""
@@ -546,7 +576,8 @@ def main(argv=None) -> int:
         from .voix_studio import apply as studio
         main_wav, audio_note = studio(src, main_wav, work)
         log.info("Voix : %s", audio_note)
-    aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", chap_times)
+    # carte de fin : le petit générique « info » à son arrivée (en plus du souffle et de la nappe des cartes)
+    aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", list(chap_times) + outro_t)
     # « logo incrusté » écrit dans le fichier : Push-overlay (Shorts) n'ajoute alors pas un 2e petit logo
     tagc = ""
     if R.BRAND and R.BRAND.get("bug") and len(R.BRAND_FAILS) < len(segs):
@@ -575,6 +606,9 @@ def main(argv=None) -> int:
         plan["_opener_note"] = ((plan.get("_opener_note") or "ouverture choc") + " — " + R.OPENER_NOTES[-1])
         if R.OPENER_NOTES[-1].startswith("⚠"):
             qc.append((False, R.OPENER_NOTES[-1].lstrip("⚠ ")))
+    for n_ in R.INSERT_NOTES:
+        if n_.startswith("⚠"):
+            qc.append((False, n_.lstrip("⚠ ")))
     if R.BRAND_FAILS:
         brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
     brand["why"] = chaine_why
@@ -1227,6 +1261,9 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             a_, b_ = out_time(segs, h["t0"]), out_time(segs, h["t1"])
             if a_ is not None and b_ is not None and b_ > a_:
                 L.append(f"  - ⚠ entre {tc(a_)} et {tc(b_)} : pas d'extrait — " + " ; ".join(h["why"][:3]))
+    if opts.get("_sans_recherche"):
+        L.append("- 🔒 Recherche automatique désactivée (presse, Finder, Telegram, Reddit, photos Wikimedia) : seuls TES "
+                 "articles, vidéos et photos sont montés ; Gemini ne sert qu'au plan, aux chapitres et au placement.")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         if lot_info.get("origine"):
@@ -1292,7 +1329,7 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             v = s.panel["v"]
             what = {"person": "Photo (personne)", "place": "Photo (lieu)", "thing": "Photo", "event": "Photo (événement)",
                     "article": "Article de presse", "figure": "Chiffre clé", "quote": "Citation",
-                    "attachment": "Ta photo", "statement": "Déclaration (carte)"}.get(v["kind"], v["kind"])
+                    "attachment": "Ta photo", "statement": "Déclaration (carte)", "outro": "Carte de fin"}.get(v["kind"], v["kind"])
             lab = v.get("text") or v.get("label") or ""
             side = ("à droite de toi" if s.side == "left" else "à gauche de toi") if info["w"] >= info["h"] else "sous toi"
             said = sents[v["s0"]]["text"][:110] if v["s0"] < len(sents) else ""
@@ -1305,8 +1342,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                 L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | **Ouverture choc**{tr} | dans un cadre à côté de toi (jamais en plein écran), avant que tu "
                          f"parles | passage le plus fort de l'extrait | {a.get('source', '—')} |")
                 continue
-            L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | Extrait vidéo{tr} | plein écran, tu disparais "
-                     f"(pendant ton silence) | après « {said} » | {a.get('source', '—')} |")
+            L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | Extrait vidéo{tr} | dans un cadre à côté de toi "
+                     f"(ta vidéo en pause, jamais plein écran) | après « {said} » | {a.get('source', '—')} |")
     used_att = {c["v"].get("attachment") for c in chosen} | {s.insert.get("attachment") for s in segs if s.kind == "insert"} \
         | {(s.insert.get("asset") or {}).get("attachment") for s in segs if s.kind == "insert"}
     left = [x["name"] for x in att if x["id"] not in used_att]

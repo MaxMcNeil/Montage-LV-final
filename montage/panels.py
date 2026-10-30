@@ -157,6 +157,11 @@ def _base(pw: int, ph: int, color, hole=None, hole_r: int = 18) -> tuple[Image.I
         m = Image.composite(m, Image.new("L", (pw, ph), 0), hm)
     card.putalpha(m)
     im.alpha_composite(card, (P, P))
+    if hole:   # la fenêtre de la photo est VRAIMENT transparente : l'ombre de la carte ne l'assombrit plus
+        hx, hy, hw, hh = hole
+        a = im.getchannel("A")
+        ImageDraw.Draw(a).rounded_rectangle((P + hx, P + hy, P + hx + hw - 1, P + hy + hh - 1), hole_r, fill=0)
+        im.putalpha(a)
     return im, ImageDraw.Draw(im)
 
 
@@ -169,7 +174,30 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
     label, sub, credit = data.get("label", ""), data.get("sublabel", ""), data.get("credit", "")
     photo = None
     hole = None
-    if kind == "figure":
+    if kind == "outro":   # carte de fin : logo animé (lent zoom) + merci + abonnez-vous, sur bleu nuit
+        logo = data.get("logo")
+        m = 56
+        if logo is not None:
+            ls = int(min(pw * 0.40, ph * 0.40))
+            hole = ((pw - ls) // 2, int(ph * 0.08), ls, ls)
+            im, d = _base(pw, ph, C.NAVY, hole=hole, hole_r=8)
+            ty = hole[1] + ls + 30
+            lg = logo.convert("RGBA").copy()
+            lg.thumbnail((ls * 2 - 40, ls * 2 - 40), Image.LANCZOS)
+            photo = Image.new("RGB", (ls * 2, ls * 2), C.NAVY)
+            photo.paste(lg, ((ls * 2 - lg.width) // 2, (ls * 2 - lg.height) // 2), lg)
+        else:
+            im, d = _base(pw, ph, C.NAVY)
+            ty = int(ph * 0.18)
+        avail = ph - ty - 40
+        f, lines, size = fit(d, data.get("text", ""), "serif", pw - 2 * m, int(avail * 0.58), 92, 44, 3, 1.12)
+        y_end = draw_lines(d, lines, f, size, (P + m, P + ty, pw - 2 * m, int(avail * 0.58)), C.CREAM, align="center",
+                           spacing=1.12, valign="middle")
+        d.rectangle((P + pw / 2 - 60, y_end + 18, P + pw / 2 + 60, y_end + 23), fill=C.GOLD)
+        if sub:
+            f2, l2, s2 = fit(d, sub, "sans", pw - 2 * m, int(avail * 0.3), 50, 32, 2)
+            draw_lines(d, l2, f2, s2, (P + m, y_end + 44, pw - 2 * m, int(avail * 0.3)), C.GOLD_HI, align="center")
+    elif kind == "figure":
         im, d = _base(pw, ph, C.NAVY)
         m = 64
         f, lines, size = fit(d, data.get("text", ""), "serif", pw - 2 * m, int(ph * 0.48), 190, 60, 3, 1.08)

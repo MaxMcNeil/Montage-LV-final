@@ -239,9 +239,10 @@ def freeze(ctx: Ctx, t: float, out: Path) -> Path:
 
 
 OPENER_NOTES: list = []   # comment l'ouverture choc a été habillée (PLAN.md)
+INSERT_NOTES: list = []   # extraits du milieu qui n'ont pas pu être encadrés (PLAN.md)
 
 
-def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str):
+def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, opener: bool = True):
     """Ouverture choc JAMAIS en plein écran (règle YouTube contenu réutilisé / monétisation) :
       cadre : toi (image de ta 1re prise, très lent zoom) dans ton cadre arrondi + l'extrait dans un cadre arrondi à
               côté (horizontal) ou dessous (vertical), sur ton fond flouté teinté bleu nuit — sobre, pas « bling » ;
@@ -298,7 +299,16 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str):
         g.add(f"[cl]scale={vw}:{vh}:flags=bicubic,setsar=1[clv]")
         g.add(f"[bg][clv]overlay=x={(W - vw) // 2}:y={(H - vh) // 2}:shortest=1,{norm}[x1]")
     g.add(f"[{i_b}:v]{norm}[fb]")
-    g.add(f"[x1][fb]xfade=transition=fade:duration={dout:.3f}:offset={N / FPS - dout:.4f}[x2]")
+    if not opener:   # extrait au milieu : fondu doux depuis ton plan (pas de coupe sèche)
+        din = min(0.5, N / FPS / 4)
+        i_a2 = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pa)
+        g.add(f"[{i_a2}:v]{norm}[fa]")
+        g.add(f"[fa][x1]xfade=transition=fade:duration={din:.3f}:offset=0[x1b]")
+        g.add(f"[x1b]trim=end_frame={N},setpts=PTS-STARTPTS[x1c]")
+        x1 = "x1c"
+    else:
+        x1 = "x1"
+    g.add(f"[{x1}][fb]xfade=transition=fade:duration={dout:.3f}:offset={N / FPS - dout:.4f}[x2]")
     g.add(f"[x2]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
     g.run(out, N, "out", out.with_suffix(".txt"))
 
@@ -321,6 +331,16 @@ def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int
                 log.warning("ouverture choc (%s) en échec : %s", mode, str(e)[-400:])
         OPENER_NOTES.append("⚠ ouverture choc : habillage impossible → image fixe de toi à la place de l'extrait")
         raise RuntimeError("ouverture choc : habillage impossible")
+    # extrait au milieu de la vidéo : lui aussi JAMAIS en plein écran (contenu réutilisé) — toi visible à côté
+    for mode in ("cadre", "simple"):
+        try:
+            _opener_framed(seg, ctx, out, pa, pb, mode, opener=False)
+            if mode == "simple":
+                INSERT_NOTES.append(f"extrait à {seg.out0:.0f} s : réduit à 80 % (le cadre n'a pas pu être fait)")
+            return
+        except Exception as e:  # noqa: BLE001
+            log.warning("extrait %d (%s) en échec : %s", k, mode, str(e)[-400:])
+    INSERT_NOTES.append(f"⚠ extrait à {seg.out0:.0f} s : habillage impossible → affiché en plein écran")
     g = Graph()
     i_clip = g.inp("-i", ins["video"])
     i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pa)
