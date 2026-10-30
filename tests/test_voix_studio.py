@@ -77,3 +77,41 @@ def test_near_silent_source_falls_back_or_stays_sane(tmp_path):
     out, note = V.apply(src, normal, tmp_path)
     pk, _ = V._levels(out)
     assert pk <= -0.5
+
+
+def _band_db(x, sr, lo, hi):
+    F = np.abs(np.fft.rfft(x)) ** 2
+    f = np.fft.rfftfreq(len(x), 1 / sr)
+    return 10 * np.log10(F[(f >= lo) & (f < hi)].sum() + 1e-12)
+
+
+def test_deess_cuts_sibilance_only():
+    sr = 48000
+    rng = np.random.default_rng(3)
+    t = np.arange(sr * 2) / sr
+    voice = 0.3 * np.sin(2 * np.pi * 200 * t)
+    hiss = np.zeros_like(t)
+    hiss[sr // 2: sr] = 0.4 * np.convolve(rng.standard_normal(sr // 2), [1, -1], "same")   # un « s » appuyé
+    x = (voice + hiss).astype(np.float32)
+    y = V.deess(x, sr)
+    assert y.shape == x.shape
+    s0, s1 = _band_db(x[sr // 2: sr], sr, 4500, 12000), _band_db(y[sr // 2: sr], sr, 4500, 12000)
+    assert s0 - s1 > 4                                                # le « s » est nettement adouci
+    v0, v1 = _band_db(x[sr + 4800:], sr, 100, 400), _band_db(y[sr + 4800:], sr, 100, 400)
+    assert abs(v0 - v1) < 0.3                                         # la voix sans « s » n'est pas touchée
+
+
+def test_deess_file_keeps_length_and_survives_bad_file(tmp_path):
+    p = tmp_path / "v.wav"
+    _wav(p, _speechlike(sec=65))                                      # plus d'un bloc de 30 s
+    n0 = V._frames(p)
+    assert V.deess_file(p) == "anti-« s »"
+    assert V._frames(p) == n0
+    bad = tmp_path / "abime.wav"
+    bad.write_bytes(b"rien")
+    assert "sauté" in V.deess_file(bad) and bad.read_bytes() == b"rien"
+
+
+def test_no_air_boost_anymore():
+    af = V.chain(-60, -22)[0]
+    assert "highshelf" not in af and "f=3200:t=q:w=1.3:g=1.5" in af
