@@ -265,9 +265,11 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
         if not isinstance(picks, list):
             taken = [(r["video"], r["a"], r["b"]) for r in res.values()] + list(avoid or [])
             picks = _lexical([occ[n] for n in todo], words, vids, maxd, taken)
-            picks = [dict(p, n=todo[p["n"]]) for p in picks]
+            picks = [dict(p, n=todo[p["n"]]) for p in picks if isinstance(p, dict) and isinstance(p.get("n"), int) and 0 <= p["n"] < len(todo)]
         cand = {}
         for p in picks:
+            if not isinstance(p, dict):   # réponse IA mal formée : élément ignoré
+                continue
             try:
                 n, x = int(p.get("n")), by.get(str(p.get("video")))
                 a, b = float(p.get("start")), float(p.get("end"))
@@ -290,6 +292,8 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
                              f"« {_sents_in(by[c['video']], c['a'], c['b'])[:900]} »\n    APRÈS : {aft} …")
             chk = ai.json(CHECK.format(lang=lang, cases="\n\n".join(cases)))
             for ck in ((chk or {}).get("checks") or []) if isinstance(chk, dict) else []:
+                if not isinstance(ck, dict):   # réponse IA mal formée : élément ignoré
+                    continue
                 try:
                     n = int(ck.get("n"))
                 except (TypeError, ValueError):

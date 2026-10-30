@@ -201,6 +201,8 @@ def fill(ai, words: list, sents: list, att: list, inserts: list, used: dict, sil
         chosen = []
         taken_now: list[tuple] = []
         for p in picks:
+            if not isinstance(p, dict):   # réponse IA mal formée : élément ignoré
+                continue
             try:
                 n = int(p.get("slot"))
                 sl = slots[n]
@@ -241,6 +243,8 @@ def fill(ai, words: list, sents: list, att: list, inserts: list, used: dict, sil
                              f"{c['a']:.0f}-{c['b']:.0f} s) : « {_sents_in(c['x'], c['a'], c['b'])[:700]} »\n    APRÈS : {aft} …")
             chk = ai.json(VERIFY.format(lang=lang, cases="\n\n".join(cases)))
             for ck in ((chk or {}).get("checks") or []) if isinstance(chk, dict) else []:
+                if not isinstance(ck, dict):   # réponse IA mal formée : élément ignoré
+                    continue
                 try:
                     k = int(ck.get("n"))
                 except (TypeError, ValueError):
@@ -411,6 +415,8 @@ def fill_cards(ai, words, sents, inserts, visuals, sil, lang, opener, pool: dict
             continue
         chosen, seen_slot = [], set()
         for p in picks:
+            if not isinstance(p, dict):   # réponse IA mal formée : élément ignoré
+                continue
             try:
                 n, si = int(p.get("slot")), int(p.get("s"))
                 sl = slots[n]
@@ -437,6 +443,8 @@ def fill_cards(ai, words, sents, inserts, visuals, sil, lang, opener, pool: dict
                                 f"« {c['label'][:300]} »" for k, c in enumerate(chosen))
             chk = ai.json(VERIFY_CARD.format(lang=lang, cases=cases))
             for ck in ((chk or {}).get("checks") or []) if isinstance(chk, dict) else []:
+                if not isinstance(ck, dict):   # réponse IA mal formée : élément ignoré
+                    continue
                 try:
                     k = int(ck.get("n"))
                 except (TypeError, ValueError):

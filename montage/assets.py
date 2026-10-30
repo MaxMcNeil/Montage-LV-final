@@ -130,8 +130,19 @@ def _relevant(fname: str, title: str, query: str) -> bool:
     stop = {"de", "la", "le", "les", "des", "du", "et", "en", "the", "of", "and", "pour", "sur", "file", "jpg", "png",
             "svg", "jpeg", "logo"}
     words = {w for w in norm(f"{title} {query}").split() if len(w) > 2 and w not in stop}
-    fn = set(norm(re.sub(r"\.[a-z]+$", "", fname, flags=re.I)).split())
+    fn = set(norm(re.sub(r"\.[a-z]+$", "", fname, flags=re.I).replace("_", " ")).split())   # noms Commons : « A_B.jpg »
     return bool(words & fn)
+
+
+def _title_names(title: str, query: str) -> bool:
+    """Le titre de la page nomme-t-il bien le sujet cherché ? Tous les mots significatifs de la requête doivent y être
+    (accents / casse ignorés). « Pegasus (logiciel espion) » nomme « Pegasus » ; « Adrien Quatennens » non."""
+    from .util import norm
+    stop = {"de", "la", "le", "les", "des", "du", "et", "en", "the", "of", "and", "pour", "sur", "l", "d", "a", "un",
+            "une", "au", "aux"}
+    q_ = [w for w in norm(query).split() if len(w) > 1 and w not in stop]
+    t_ = set(norm(title).split())
+    return bool(q_) and all(w in t_ or any(x.startswith(w) or w.startswith(x) for x in t_ if len(x) > 3) for w in q_)
 
 
 def wiki_image(query: str, langs: list[str], dest: Path) -> dict | None:
@@ -151,13 +162,18 @@ def wiki_image(query: str, langs: list[str], dest: Path) -> dict | None:
             page = pages[0] if pages else {}
             if "missing" in page or (page.get("pageprops") or {}).get("disambiguation") is not None:
                 if attempt == 0:
-                    s = _get(base, {"action": "query", "format": "json", "list": "search", "srsearch": query, "srlimit": 1})
+                    s = _get(base, {"action": "query", "format": "json", "list": "search", "srsearch": query, "srlimit": 5})
                     hits = (s.json().get("query", {}).get("search") or []) if s else []
-                    if hits:
-                        title = hits[0]["title"]
+                    # recherche dans le TEXTE des articles : le 1er résultat peut être un article qui parle du sujet
+                    # (ex. « Pegasus » → page d'un homme politique visé) → seul un titre qui NOMME le sujet est accepté
+                    ok_hits = [h for h in hits if _title_names(h.get("title", ""), query)]
+                    if ok_hits:
+                        title = ok_hits[0]["title"]
                         continue
                 break
             names = []
+            if attempt == 1 and not _title_names(page.get("title", ""), query):
+                break                     # page trouvée par recherche qui ne nomme pas le sujet : aucune photo plutôt qu'une fausse
             if page.get("pageimage") and _relevant(page["pageimage"], page.get("title", ""), query):
                 names.append(page["pageimage"])  # image d'illustration : gardée seulement si elle parle du sujet
             qid = (page.get("pageprops") or {}).get("wikibase_item")

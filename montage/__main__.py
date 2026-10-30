@@ -892,6 +892,8 @@ def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, la
     if t0_job:
         end_t = min(end_t, t0_job + float(os.environ.get("MONTAGE_JOB_MINUTES", "340")) * 60 - 100 * 60)
     for p in picks:
+        if not isinstance(p, dict):   # réponse IA mal formée : élément ignoré
+            continue
         if time.time() > end_t:
             for it in pend:
                 if not it["inserted"]:
