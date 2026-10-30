@@ -614,6 +614,8 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
         job_end = t0_job + float(os.environ.get("MONTAGE_JOB_MINUTES", "340")) * 60
         reserve = (1.6 * src_dur / 60 + 25) * 60
         budget_end = min(budget_end, job_end - reserve)
+    # téléchargements des extraits (après les recherches) : jamais sur le temps gardé pour finir le montage
+    dl_end = (job_end - reserve) if t0_job else budget_end + 40 * 60
     left_min = (budget_end - time.time()) / 60
     if todo and left_min < 8:
         for it in todo:
@@ -674,7 +676,9 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
             it["status"] = f"⚠ {res['error']}"
             continue
         n_other = sum(1 for i in inserts if not (i.get("attachment") or i.get("kw") is not None))
-        if n_other < max_ins and (res.get("clips") or soc_clips):
+        if time.time() > dl_end and (res.get("clips") or soc_clips):
+            it["detail"] += " ; extraits non téléchargés : temps gardé pour finir le montage"
+        elif n_other < max_ins and (res.get("clips") or soc_clips):
             asset = press_clip(res, orient, work, k, lang, ai, maxd, used) if res.get("clips") else None
             if not asset and soc_clips:   # YouTube bloqué : vidéo postée sur Telegram / Reddit (téléchargeable)
                 asset = clip_insert(soc_clips[:3], orient, work, f"soc{k}", lang, ai, maxd, used)
@@ -1018,6 +1022,14 @@ def pick_found_opener(ai, pool: list, inserts: list, lang: str, orient: str, wor
     else:
         order = [0]
     t_end = time.time() + 8 * 60                       # garde-fou : jamais plus de 8 min pour l'ouverture
+    try:                                               # … ni sur le temps gardé pour finir le montage (rendu, envoi)
+        t0_job = float(os.environ.get("JOB_T0") or 0)
+    except ValueError:
+        t0_job = 0.0
+    if t0_job:
+        t_end = min(t_end, t0_job + float(os.environ.get("MONTAGE_JOB_MINUTES", "340")) * 60 - 100 * 60)
+        if time.time() > t_end:
+            return None, "pas d'ouverture choc : temps gardé pour finir le montage"
     for n, k in enumerate(order[:4]):
         if time.time() > t_end:
             break
