@@ -149,6 +149,13 @@ cohérent → pas d'extrait (mieux vaut un trou qu'un hors-sujet) : PLAN.md, lig
 extrait ajouté et chaque trou avec la raison. Chaque extrait a sa **propre légende** (ce que montre ce passage).
 Pour couper : `rythme: non` dans les consignes ou la description de la release.
 
+## 🔗 Shorts après un montage lancé à la main
+
+Menu **chaine_shorts** → `oui` : une fois le montage déposé (release `out-montage` ou Google Drive), les Shorts sont
+lancés dans Push-overlay, comme dans la chaîne depuis le fond vert. Menu **shorts_sous_titres** : `oui` (défaut : gros
+sous-titres lisibles, jamais sur ton visage) ou `non`. Depuis le fond vert, le même choix s'appelle
+`chaine_shorts_sous_titres`.
+
 ## ⚡ Ouverture choc (facultatif)
 
 **Activée par défaut** (release, *Run workflow* et chaîne automatique fond vert → montage → Shorts).

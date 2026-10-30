@@ -76,6 +76,16 @@ on:
         type: choice
         options: [oui, osint, non]
         default: oui
+      chaine_shorts:
+        description: "🔗 Enchaîner les Shorts (Push-overlay) après ce montage"
+        type: choice
+        options: [non, oui]
+        default: non
+      shorts_sous_titres:
+        description: "🔗 Sous-titres dans les Shorts enchaînés (gros, lisibles, jamais sur ton visage) : oui / non"
+        type: choice
+        options: [oui, non]
+        default: oui
 
 permissions:
   contents: write
@@ -109,9 +119,9 @@ jobs:
     if: needs.tri.outputs.go == '1'
     outputs:
       chaine_id: ${{ github.event.client_payload.chaine_id }}
-      video_url: ${{ steps.pubc.outputs.video_url }}
-      video_id: ${{ steps.pubc.outputs.video_id }}
-      video_nom: ${{ steps.pubc.outputs.video_nom }}
+      video_url: ${{ steps.pubc.outputs.video_url || steps.pub.outputs.video_url }}
+      video_id: ${{ steps.pubc.outputs.video_id || steps.pub.outputs.video_id }}
+      video_nom: ${{ steps.pubc.outputs.video_nom || steps.pub.outputs.video_nom }}
       joints: ${{ steps.pubc.outputs.joints }}
     runs-on: ubuntu-24.04
     timeout-minutes: 340
@@ -300,7 +310,11 @@ jobs:
   chaine-shorts:
     name: 🔗 Chaîne — lancer les Shorts
     needs: montage
-    if: github.event_name == 'repository_dispatch' && needs.montage.outputs.chaine_id != ''
+    # chaîne depuis le fond vert, OU lancement à la main avec « chaine_shorts = oui » (montage déposé quelque part)
+    if: >-
+      (github.event_name == 'repository_dispatch' && needs.montage.outputs.chaine_id != '') ||
+      (github.event_name == 'workflow_dispatch' && inputs.chaine_shorts == 'oui' &&
+       (needs.montage.outputs.video_url != '' || needs.montage.outputs.video_id != ''))
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -328,10 +342,12 @@ jobs:
           REPO: ${{ github.repository }}
           RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
           CHAINE_GH_TOKEN: ${{ steps.chaine_tok.outputs.token || secrets.CHAINE_TOKEN }}
-          CHAINE_ID: ${{ needs.montage.outputs.chaine_id }}
+          CHAINE_ID: ${{ needs.montage.outputs.chaine_id || format('manuel-{0}', github.run_id) }}
           CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
+          SHORTS_SOUS_TITRES: ${{ inputs.shorts_sous_titres || github.event.client_payload.shorts_sous_titres || 'oui' }}
           VIDEO_URL: ${{ needs.montage.outputs.video_url }}
           VIDEO_ID: ${{ needs.montage.outputs.video_id }}
           VIDEO_NOM: ${{ needs.montage.outputs.video_nom }}
-          JOINTS_B64: ${{ needs.montage.outputs.joints }}
+          # lancement à la main : montage-joints a déjà été vidé par la publication habituelle
+          JOINTS_B64: ${{ github.event_name == 'repository_dispatch' && needs.montage.outputs.joints || '' }}
         run: bash scripts/chaine_suite.sh lancer

@@ -26,6 +26,8 @@ done
 # ---------- Google Drive : toujours une copie dans le dossier des résultats ----------
 OU=()
 REMOTE=""
+REL_URL=""
+DRIVE_ID=""
 if [ -n "${RCLONE_CONF:-}" ]; then
   for _i in 1 2 3; do command -v rclone >/dev/null && break; curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sleep 5; done
   mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
@@ -40,6 +42,10 @@ if [ -n "${RCLONE_CONF:-}" ]; then
       if [ "$L" = "$R" ]; then
         rclone copyto output/PLAN.md "$DEST_DIR/${NAME%.mp4}-PLAN.md" -q || true
         OU+=("Google Drive \`$DEST_DIR/$NAME\`")
+        DRIVE_ID=$(rclone lsjson "$DEST_DIR/$NAME" --no-mimetype 2>/dev/null | python3 -c 'import sys,json
+try:
+    a=json.load(sys.stdin); print(a[0].get("ID","") if a else "")
+except Exception: print("")' 2>/dev/null || true)
       else
         echo "::warning::Copie Google Drive incomplète ($L / $R octets)"
       fi
@@ -63,7 +69,8 @@ if [ "$MB" -lt "${RELEASE_MAX_MB:-1900}" ]; then
   if gh release create "$TAG_OUT" --repo "$REPO" --prerelease --title "🎬 RÉSULTAT — Montage final — $VERDICT" --notes-file /tmp/notes.md; then
     for i in 1 2 3; do
       if gh release upload "$TAG_OUT" "output/$NAME" output/PLAN.md output/plan.json --repo "$REPO" --clobber; then
-        OU+=("[🎬 RÉSULTAT — Montage final](https://github.com/$REPO/releases/tag/$TAG_OUT)"); break
+        OU+=("[🎬 RÉSULTAT — Montage final](https://github.com/$REPO/releases/tag/$TAG_OUT)")
+        REL_URL="https://github.com/$REPO/releases/download/$TAG_OUT/$NAME"; break
       fi
       sleep 8
     done
@@ -87,5 +94,7 @@ else
       || echo "::warning::Le dossier « $JD » n'a pas pu être vidé : retire ces fichiers à la main avant la prochaine vidéo."
   fi
 fi
+# pour les Shorts enchaînés (lancement à la main avec « chaine_shorts = oui ») : où trouver le montage
+{ echo "video_url=${REL_URL:-}"; echo "video_id=${DRIVE_ID:-}"; echo "video_nom=$NAME"; } >> "${GITHUB_OUTPUT:-/dev/null}"
 { echo "### $MSG"; echo; cat output/PLAN.md; } >> "$SUM"
 bash scripts/release-status.sh "${SRC_TAG:-}" ok "$MSG"

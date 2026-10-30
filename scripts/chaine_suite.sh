@@ -110,12 +110,15 @@ fi
 [ "$MODE" = "lancer" ] || err "usage : chaine_suite.sh publier | lancer"
 [ -n "${VIDEO_URL:-}" ] || [ -n "${VIDEO_ID:-}" ] || err "aucune vidéo à transmettre (le job du montage n'a rien publié)"
 [ -n "${CHAINE_GH_TOKEN:-}" ] || err "jeton de chaîne absent (variable CHAINE_APP_ID + secret CHAINE_APP_KEY, ou secret CHAINE_TOKEN, dans Montage-LV-final). Le montage est publié ; corrige puis « Re-run failed jobs » (seul ce lancement est refait)."
-python3 - "$CHAINE_ID" "${VIDEO_URL:-}" "${VIDEO_ID:-}" "${VIDEO_NOM:-montage.mp4}" "https://github.com/$REPO/actions/runs/${GITHUB_RUN_ID:-0}" > bon-shorts.json <<'PY'
+ST="$(printf '%s' "${SHORTS_SOUS_TITRES:-oui}" | tr 'A-Z' 'a-z')"; [ "$ST" = non ] || ST=oui
+python3 - "$CHAINE_ID" "${VIDEO_URL:-}" "${VIDEO_ID:-}" "${VIDEO_NOM:-montage.mp4}" "https://github.com/$REPO/actions/runs/${GITHUB_RUN_ID:-0}" "$ST" > bon-shorts.json <<'PY'
 import json, sys
-i, url, fid, nom, origine = sys.argv[1:6]
+i, url, fid, nom, origine, st = sys.argv[1:7]
 print(json.dumps({"event_type": "chaine-shorts", "client_payload": {
-    "v": 2, "chaine_id": i, "video_url": url, "video_id": fid, "video_nom": nom, "origine": origine}}, ensure_ascii=False))
+    "v": 2, "chaine_id": i, "video_url": url, "video_id": fid, "video_nom": nom, "origine": origine,
+    "sous_titres": st}}, ensure_ascii=False))
 PY
+echo "Sous-titres dans les Shorts : $ST"
 cat bon-shorts.json
 OK=0
 for i in 1 2 3 4 5; do
