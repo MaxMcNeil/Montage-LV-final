@@ -69,6 +69,12 @@ def options(path: str | None) -> dict:
              "espagnol": "es", "español": "es", "allemand": "de", "deutsch": "de"}
     lg = o["langue"]
     o["langue"] = names.get(lg, lg[:2] if re.fullmatch(r"[a-z]{2}(-[a-z]+)?", lg or "") else "auto")
+    # 🔒 VERROU : en chaîne (depuis le fond vert, ou Montage lancé à la main avec « chaine_shorts = oui »), la vidéo
+    # montée n'a JAMAIS de sous-titres, quel que soit le réglage reçu (les Shorts ont leur propre choix)
+    if (os.environ.get("CHAINE_ID") or "").strip() or (os.environ.get("MONTAGE_CHAINE_SHORTS") or "").strip().lower() == "oui":
+        if o.get("sous_titres") != "non":
+            log.info("Chaîne : sous-titres de la vidéo montée forcés à « non » (verrou)")
+        o["sous_titres"] = "non"
     return o
 
 

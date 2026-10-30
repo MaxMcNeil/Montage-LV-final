@@ -156,6 +156,7 @@ jobs:
       PYTHONPATH: vpf
       # 🔗 CHAÎNE (vide pour un montage lancé à la main ou par une release : rien ne change alors)
       CHAINE_ID: ${{ github.event.client_payload.chaine_id }}
+      MONTAGE_CHAINE_SHORTS: ${{ inputs.chaine_shorts }}   # verrou : en chaîne, jamais de sous-titres dans la vidéo montée
       CHAINE_VIDEO_ID: ${{ github.event.client_payload.video_id }}
       CHAINE_FINDER: ${{ github.event.client_payload.finder }}
       CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
