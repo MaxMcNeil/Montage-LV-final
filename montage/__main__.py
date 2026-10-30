@@ -228,7 +228,9 @@ def main(argv=None) -> int:
             used.setdefault(opener["attachment"], []).append(opener["clip"])
     for k, ins in enumerate(plan["inserts"]):
         x = by_id.get(ins["attachment"])
-        if not x or len(inserts) >= cap_att:  # dimensionné selon la durée (tes vidéos passent avant la presse)
+        # dimensionné selon la durée (tes vidéos passent avant la presse) ; chaque vidéo jointe a TOUJOURS au moins
+        # un passage, même au-delà de la limite
+        if not x or (len(inserts) >= cap_att and x["id"] in used):
             continue
         s_ = x.get("sentences") or []
         want0 = ins.get("clip_start") or 0.0
@@ -536,6 +538,7 @@ def main(argv=None) -> int:
     from . import render as R
     R.BRAND = brand_check(brand, work / "chaine")
     R.BRAND_FAILS.clear()
+    R.OPENER_NOTES.clear()
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
     audio_note = ""
@@ -568,6 +571,10 @@ def main(argv=None) -> int:
                        + " (voir « Rythme » plus bas : pourquoi)"))
         except Exception as e:  # noqa: BLE001
             log.warning("contrôle du rythme impossible : %s", e)
+    if R.OPENER_NOTES:
+        plan["_opener_note"] = ((plan.get("_opener_note") or "ouverture choc") + " — " + R.OPENER_NOTES[-1])
+        if R.OPENER_NOTES[-1].startswith("⚠"):
+            qc.append((False, R.OPENER_NOTES[-1].lstrip("⚠ ")))
     if R.BRAND_FAILS:
         brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
     brand["why"] = chaine_why
@@ -1295,8 +1302,8 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             said = sents[s.insert["after"]]["text"][:110] if 0 <= s.insert["after"] < len(sents) else ""
             tr = " (sous-titres traduits)" if a.get("translated") else ""
             if s.insert.get("opener"):
-                L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | **Ouverture choc**{tr} | plein écran, avant que tu "
-                         f"apparaisses | passage le plus fort de l'extrait | {a.get('source', '—')} |")
+                L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | **Ouverture choc**{tr} | dans un cadre à côté de toi (jamais en plein écran), avant que tu "
+                         f"parles | passage le plus fort de l'extrait | {a.get('source', '—')} |")
                 continue
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | Extrait vidéo{tr} | plein écran, tu disparais "
                      f"(pendant ton silence) | après « {said} » | {a.get('source', '—')} |")

@@ -4,6 +4,7 @@ les zooms de relance. Tout est calé à l'image près (30 i/s)."""
 from __future__ import annotations
 
 import logging
+import math
 import re
 from dataclasses import dataclass, field
 
@@ -223,6 +224,13 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
                         log.info("vidéo jointe : pas de silence juste après la phrase %d → placée au silence voisin "
                                  "(%.1f s)", a, t)
                         break
+        if t is None and ins.get("attachment"):
+            # TA vidéo jointe doit TOUJOURS paraître : le plus petit blanc entre deux mots suffit (jamais sur un mot) ;
+            # l'extrait met ta vidéo en pause à cet endroit, donc ta parole n'est jamais coupée
+            t = any_gap(words, sents, keep, a, [p["t"] for p in pts])
+            if t is not None:
+                log.info("vidéo jointe : aucun vrai silence autour de la phrase %d → placée dans le petit blanc entre "
+                         "deux mots à %.2f s (ta phrase n'est pas coupée)", a, t)
         if t is None:
             log.warning("pas de vrai silence sûr autour de la phrase %d : extrait non inséré (pour ne pas te couper)", a)
             ins["refused"] = True
@@ -246,10 +254,12 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         cands.append({"v": v, "st": st, "en": en, "rank": rank})
     cands.sort(key=lambda c: c["rank"])
     chosen, cover = [], 0.0
-    for c in cands:
-        st, en = c["st"], c["en"]
-        if st < first_t + 4.0 or en > last_t - (7.0 if opts.get("fin") == "oui" else 1.0):
-            continue
+    t_lo, t_hi = first_t + 4.0, last_t - (7.0 if opts.get("fin") == "oui" else 1.0)
+
+    def fit(st, en, gap=2.2, dmin=3.0):
+        """Fenêtre [st, en] ajustée (chapitres, extraits, autres médias) ou None si elle ne tient pas."""
+        if st < t_lo or en > t_hi:
+            return None
         for t in chap_t:  # un titre de chapitre ne partage jamais l'écran avec un média
             if t <= first_t + 1:
                 continue
@@ -260,12 +270,46 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         for p in pts:  # jamais à cheval sur un extrait inséré
             if st - 1.0 < p["t"] < en + 0.6:
                 en = p["t"] - 0.6
-        if en - st < 3.0:
+        if en - st < dmin or en > t_hi:
+            return None
+        if any(not (en + gap <= o["st"] or st >= o["en"] + gap) for o in chosen):
+            return None
+        return st, en
+
+    def shifts(mine):
+        # tes photos : la place libre la plus proche, avant ou après (jusqu'à 2 min) ; médias automatiques : un peu
+        # plus tard seulement (toujours dans le même sujet)
+        if mine:
+            for d in (3, 6, 10, 15, 20, 30, 45, 60, 90, 120):
+                yield d
+                yield -d
+        else:
+            yield from (3, 6, 10, 15)
+
+    for c in cands:
+        st, en = c["st"], c["en"]
+        mine = c["v"]["kind"] == "attachment"
+        w = fit(st, en)
+        if w is None:
+            dur = max(4.0, en - st)
+            for d in shifts(mine):
+                w = fit(st + d, st + d + dur)
+                if w is not None:
+                    break
+        if w is None and mine:   # dernier recours pour TA photo : écart réduit entre deux médias, 2,5 s à l'écran
+            for d in (0,) + tuple(x for d_ in (3, 6, 10, 15, 20, 30, 45, 60, 90, 120) for x in (d_, -d_)):
+                w = fit(st + d, st + d + 4.0, gap=0.4, dmin=2.5)
+                if w is not None:
+                    break
+        if w is None:
+            if mine:
+                log.warning("ta photo %s : aucune place à l'écran sur toute la vidéo", c["v"].get("attachment"))
             continue
-        if any(not (en + 2.2 <= o["st"] or st >= o["en"] + 2.2) for o in chosen):
+        st, en = w
+        if not mine and cover + (en - st) > 0.6 * speech:
             continue
-        if c["v"]["kind"] != "attachment" and cover + (en - st) > 0.6 * speech:
-            continue
+        if abs(st - c["st"]) > 0.5:
+            c["v"]["moved"] = round(st - c["st"], 1)
         chosen.append({"v": c["v"], "st": q(st), "en": q(en)})
         cover += en - st
     chosen.sort(key=lambda c: c["st"])
@@ -341,6 +385,39 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         t += s.n / FPS
     segs = [s for s in segs if s.n > 0]
     return segs, chosen
+
+
+def any_gap(words: list, sents: list, keep: list, after: int, taken: list, look_back: int = 3,
+            look_ahead: int = 6) -> float | None:
+    """Dernier recours pour TA vidéo jointe : le blanc entre deux mots le plus adapté autour de la phrase « after »,
+    même tout petit (l'extrait met ta vidéo en pause : rien n'est coupé). Priorité : fin de phrase, puis le blanc le
+    plus long, puis le plus proche. Jamais sur un mot, jamais à moins de 3 s d'un autre extrait."""
+    if not words or not sents or not keep:
+        return None
+    after = max(0, min(after, len(sents) - 1))
+    k0 = sents[max(0, after - look_back)]["w0"]
+    k1 = sents[min(len(sents) - 1, after + look_ahead)]["w1"]
+    target = sents[after]["t1"]
+    best = None
+    for k in range(max(0, k0), min(k1, len(words) - 2) + 1):
+        a, b = words[k]["t1"], words[k + 1]["t0"]
+        if b - a < 0.02:           # mots collés : on ne s'y glisse pas
+            continue
+        t = None
+        for c in (q((a + b) / 2), math.ceil(a * FPS - 1e-6) / FPS, math.floor(b * FPS + 1e-6) / FPS):
+            c = _snap(round(c, 6), keep)                 # instant pile sur une image, entre les deux mots
+            if c is not None and a - 1e-6 <= c <= b + 1e-6:
+                t = c
+                break
+        if t is None:
+            continue
+        if any(w["t0"] < t < w["t1"] for w in words) or any(abs(t - x) < 3.0 for x in taken):
+            continue
+        end_sentence = bool(re.search(r"[.!?…؟,;:]['\"»”)]*$", words[k]["w"]))
+        key = (0 if end_sentence else 1, -round(b - a, 2), abs(t - target))
+        if best is None or key < best[0]:
+            best = (key, t)
+    return best[1] if best else None
 
 
 def _snap(t: float, keep: list) -> float | None:

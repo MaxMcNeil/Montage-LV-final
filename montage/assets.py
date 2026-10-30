@@ -67,9 +67,17 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                 run(["ffmpeg", "-y", "-ss", f"{min(3.0, info['duration'] / 3):.2f}", "-i", a["path"], "-frames:v", "1", fr])
                 img = open_image(fr)
                 if info["audio"]:
-                    t = transcribe(Path(a["path"]), work, None, tag=a["id"])
-                    a["lang"] = t.get("lang")
-                    a["sentences"] = [{"t0": s["t0"], "t1": s["t1"], "text": s["text"]} for s in sentences(t["words"])]
+                    try:
+                        t = transcribe(Path(a["path"]), work, None, tag=a["id"])
+                        a["lang"] = t.get("lang")
+                        a["sentences"] = [{"t0": s["t0"], "t1": s["t1"], "text": s["text"]}
+                                          for s in sentences(t["words"])]
+                    except Exception as e:  # noqa: BLE001 - ta vidéo reste utilisée, simplement sans ses paroles
+                        log.warning("vidéo jointe %s : transcription impossible (%s) → utilisée quand même, sans "
+                                    "ses paroles", a["name"], e)
+                        a["sentences"] = []
+                if info["duration"] <= 0 or not info.get("video"):
+                    raise ValueError("pas d'image vidéo lisible")
             except Exception as e:  # noqa: BLE001
                 log.warning("vidéo jointe illisible %s : %s", a["name"], e)
                 a["broken"] = True

@@ -238,12 +238,89 @@ def freeze(ctx: Ctx, t: float, out: Path) -> Path:
     return out
 
 
+OPENER_NOTES: list = []   # comment l'ouverture choc a été habillée (PLAN.md)
+
+
+def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str):
+    """Ouverture choc JAMAIS en plein écran (règle YouTube contenu réutilisé / monétisation) :
+      cadre : toi (image de ta 1re prise, très lent zoom) dans ton cadre arrondi + l'extrait dans un cadre arrondi à
+              côté (horizontal) ou dessous (vertical), sur ton fond flouté teinté bleu nuit — sobre, pas « bling » ;
+      simple : l'extrait réduit à 80 %, centré, sur ce même fond (repli si le cadre échoue).
+    Le petit logo de la chaîne s'ajoute par-dessus comme partout (Graph.run). Fin : fondu vers ta 1re prise."""
+    ins = seg.insert["asset"]
+    N = seg.n
+    W, H = ctx.W, ctx.H
+    P = C.SHADOW_PAD
+    tdur = N / FPS + 1
+    g = Graph()
+    i_clip = g.inp("-i", ins["video"])
+    i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", pa)
+    i_b = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pb)
+    norm = f"fps={FPS},settb=1/{FPS},format=yuv420p"
+    dout = min(0.45, N / FPS / 4)
+    g.add(f"[{i_clip}:v]{norm},setpts=N/{FPS}/TB,tpad=stop_mode=clone:stop_duration=1,trim=end_frame={N}[cl]")
+    g.add(f"[{i_a}:v]fps={FPS},setsar=1,split=2[abg][acard]")
+    g.add(f"[abg]scale={W // 6}:{H // 6},boxblur=6:2,scale={W}:{H},eq=brightness=-0.06:saturation=0.5,"
+          f"trim=end_frame={N + 2}[bg0]")
+    g.add(f"color=c={C.ff_color(C.NAVY, 0.50)}:s={W}x{H}:r={FPS}[tint]")
+    g.add("[bg0][tint]overlay=shortest=1,format=yuv420p[bg]")
+    if mode == "cadre":
+        geo = GEOM[ctx.o]["left"]
+        cx, cy, cw, ch = geo["card"]
+        px, py, pw, ph = geo["panel"]
+        lay = card_layers(cw, ch, ctx.work / "layers")
+        if ctx.o == "h":   # extrait entier visible (aucune partie coupée), centré dans la zone média
+            vw, vh = pw // 2 * 2, int(pw * H / W) // 2 * 2
+        else:              # vertical : la zone sous toi est remplie (centre de l'extrait)
+            vw, vh = pw // 2 * 2, ph // 2 * 2
+        vx, vy = px + (pw - vw) // 2, py + (ph - vh) // 2
+        lv = card_layers(vw, vh, ctx.work / "layers")
+        ims = {n_: g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", f_)
+               for n_, f_ in (("m", lay["mask"]), ("u", lay["under"]), ("o", lay["over"]),
+                              ("vm", lv["mask"]), ("vu", lv["under"]), ("vo", lv["over"]))}
+        g.add(f"[acard]{ctx.card_crop(cw, ch)},zoompan=z='1.0+0.04*on/{max(1, N)}':x='iw/2-(iw/zoom/2)':"
+              f"y='ih/2-(ih/zoom/2)':d=1:s={cw}x{ch}:fps={FPS},setsar=1,format=yuva420p[cv]")
+        g.add(f"[{ims['m']}:v]format=gray,scale={cw}:{ch}[mk]")
+        g.add("[cv][mk]alphamerge[card]")
+        g.add(f"[cl]scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=bicubic,crop={vw}:{vh},setsar=1,"
+              f"format=yuva420p[clv]")
+        g.add(f"[{ims['vm']}:v]format=gray,scale={vw}:{vh}[vmk]")
+        g.add("[clv][vmk]alphamerge[clr]")
+        g.add(f"[bg][{ims['u']}:v]overlay=x={cx - P}:y={cy - P}:shortest=1[b1]")
+        g.add(f"[b1][card]overlay=x={cx}:y={cy}:shortest=1[b2]")
+        g.add(f"[b2][{ims['o']}:v]overlay=x={cx}:y={cy}:shortest=1[b3]")
+        g.add(f"[b3][{ims['vu']}:v]overlay=x={vx - P}:y={vy - P}:shortest=1[b4]")
+        g.add(f"[b4][clr]overlay=x={vx}:y={vy}:shortest=1[b5]")
+        g.add(f"[b5][{ims['vo']}:v]overlay=x={vx}:y={vy}:shortest=1,{norm}[x1]")
+    else:
+        vw, vh = int(W * 0.8) // 2 * 2, int(H * 0.8) // 2 * 2
+        g.add("[acard]nullsink")
+        g.add(f"[cl]scale={vw}:{vh}:flags=bicubic,setsar=1[clv]")
+        g.add(f"[bg][clv]overlay=x={(W - vw) // 2}:y={(H - vh) // 2}:shortest=1,{norm}[x1]")
+    g.add(f"[{i_b}:v]{norm}[fb]")
+    g.add(f"[x1][fb]xfade=transition=fade:duration={dout:.3f}:offset={N / FPS - dout:.4f}[x2]")
+    g.add(f"[x2]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
+    g.run(out, N, "out", out.with_suffix(".txt"))
+
+
 def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int):
     ins = seg.insert["asset"]
     N = seg.n
     opener = bool(seg.insert.get("opener"))
     pa = freeze(ctx, prev_t, ctx.work / f"freeze_{k}_a.png")
     pb = freeze(ctx, next_t, ctx.work / f"freeze_{k}_b.png")
+    if opener:   # ouverture choc : jamais en plein écran — toi visible à côté, sinon extrait réduit sur ton fond
+        for mode in ("cadre", "simple"):
+            try:
+                _opener_framed(seg, ctx, out, pa, pb, mode)
+                OPENER_NOTES.append("ouverture choc habillée : " + (
+                    "toi dans ton cadre + l'extrait dans un cadre à côté (jamais en plein écran)" if mode == "cadre"
+                    else "extrait réduit à 80 % sur ton fond (le cadre n'a pas pu être fait)"))
+                return
+            except Exception as e:  # noqa: BLE001
+                log.warning("ouverture choc (%s) en échec : %s", mode, str(e)[-400:])
+        OPENER_NOTES.append("⚠ ouverture choc : habillage impossible → image fixe de toi à la place de l'extrait")
+        raise RuntimeError("ouverture choc : habillage impossible")
     g = Graph()
     i_clip = g.inp("-i", ins["video"])
     i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pa)
@@ -451,6 +528,57 @@ def sfx_chapter() -> np.ndarray:
     return (st * 0.16).astype(np.float32)
 
 
+BED_LEVEL = 0.04    # nappe sous les cartes : ≈ -40 dB efficaces, ~20 dB sous ta voix (≈ -20 dB) — discrète
+
+
+def sfx_bed(dur: float, seed: int = 0) -> np.ndarray:
+    """Nappe discrète façon journal d'information (BBC / Al Jazeera), entièrement synthétisée (aucun droit d'auteur) :
+    accord feutré (la – mi – la) qui respire lentement + léger « tic » de rédaction toutes les 0,6 s.
+    Montée douce 0,7 s, extinction 0,9 s. Pas de mélodie, pas de basse qui couvrirait ta voix."""
+    sr = SAMPLE_RATE
+    n = max(1, int(dur * sr))
+    t = np.arange(n, dtype=np.float32) / sr
+    rng = np.random.default_rng(1000 + seed)
+    ph = rng.uniform(0, 2 * np.pi, 6)
+    pad = np.zeros(n, dtype=np.float32)
+    for k, (f0, a) in enumerate(((220.0, 1.0), (329.6, 0.55), (440.0, 0.35))):
+        det = 1 + 0.0025 * (k + 1)       # deux voix légèrement désaccordées : son chaud, pas électronique
+        pad += a * (np.sin(2 * np.pi * f0 * t + ph[k]) + np.sin(2 * np.pi * f0 * det * t + ph[k + 3])) / 2
+    pad *= 0.75 + 0.25 * np.sin(2 * np.pi * 0.18 * t + ph[0])      # respiration lente
+    pad /= np.abs(pad).max() + 1e-9
+    tick = np.zeros(n, dtype=np.float32)
+    m = int(0.025 * sr)
+    tt = np.arange(m, dtype=np.float32) / sr
+    click = (np.sin(2 * np.pi * 2600 * tt) * np.exp(-tt * 260)).astype(np.float32)
+    step = int(0.6 * sr)
+    for k0 in range(int(0.3 * sr), n - m, step):
+        tick[k0:k0 + m] += click * (1.0 if (k0 // step) % 2 == 0 else 0.6)
+    x = 0.8 * pad + 0.35 * tick
+    env = np.ones(n, dtype=np.float32)
+    a_, b_ = min(n // 2, int(0.7 * sr)), min(n // 2, int(0.9 * sr))
+    if a_:
+        env[:a_] = np.linspace(0, 1, a_, dtype=np.float32) ** 2
+    if b_:
+        env[-b_:] = np.linspace(1, 0, b_, dtype=np.float32) ** 2
+    x = x * env / (np.abs(x).max() + 1e-9)
+    return (np.stack([x, x * 0.97], axis=1) * BED_LEVEL).astype(np.float32)
+
+
+def card_spans(segs) -> list[tuple[float, float]]:
+    """(début, fin) dans la vidéo finale de chaque carte affichée à côté de toi (segments consécutifs regroupés)."""
+    out, prev = [], None
+    for s in segs:
+        if s.kind == "split" and s.panel is not None:
+            if prev is s.panel and out:
+                out[-1] = (out[-1][0], s.out0 + s.dur)
+            else:
+                out.append((s.out0, s.out0 + s.dur))
+            prev = s.panel
+        else:
+            prev = None
+    return [(a, b) for a, b in out if b - a >= 1.0]
+
+
 def sfx_tick() -> np.ndarray:   # (gardé pour compatibilité)
     return sfx_chapter()
 
@@ -496,6 +624,14 @@ def build_audio(segs, main_wav: Path, out: Path, sfx: bool, chapter_times: list)
             p = int(max(0.0, t) * SAMPLE_RATE)
             e = min(total, p + len(w))
             buf[p:e] += w[:e - p]
+        try:   # nappe très discrète sous chaque carte (article, presse, photo) — un bonus, jamais bloquant
+            for k, (a, b) in enumerate(card_spans(segs)):
+                bed = sfx_bed(b - a, k)
+                p = int(max(0.0, a) * SAMPLE_RATE)
+                e = min(total, p + len(bed))
+                buf[p:e] += bed[:e - p]
+        except Exception as e_:  # noqa: BLE001
+            log.warning("nappe sous les cartes sautée : %s", e_)
         tk = sfx_chapter()
         for t in chapter_times:
             p = int(max(0.0, t - 0.25) * SAMPLE_RATE)   # l'impact tombe pile quand le bandeau arrive

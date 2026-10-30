@@ -14,18 +14,21 @@ def sents_every(n, step=10.0):
 
 
 def test_holes_rule():
-    # 0 → 600 s sans rien : 5 premières minutes = fenêtres de 60 s, ensuite 90-120 s après le précédent
+    # 0 → 600 s sans rien : 5 premières minutes = fenêtres de 60 s, ensuite une carte 30-45 s après la précédente
     hs = K.holes([], 0.0, 600.0, False)
     assert hs[0] == (25.0, 60.0) and all(b - a <= 35.0 for a, b in hs if a < 300)
     late = [h for h in hs if h[0] >= 300]
-    assert late and all(b - a == 30.0 for a, b in late)          # 1 min 30 → 2 min après le précédent
-    # un élément toutes les 50 s au début puis toutes les 2 min : aucun trou
-    times = [50 * k for k in range(1, 7)] + [300 + 120 * k for k in range(1, 4)]
+    assert late and all(b - a == 15.0 for a, b in late)          # 30 s → 45 s après le précédent
+    assert len(late) >= 6                                         # bien plus de cartes qu'avant (1 toutes les 2 min)
+    # un élément toutes les 50 s au début puis toutes les 45 s : aucun trou
+    times = [50 * k for k in range(1, 7)] + [300 + 45 * k for k in range(1, 9)]
     assert K.holes(times, 0.0, 660.0, False) == []
+    # toutes les 2 min après 5 min : il manque des cartes
+    assert K.holes([50 * k for k in range(1, 7)] + [420, 540], 0.0, 660.0, False)
     assert K.holes([], 0.0, 0.0, False) == []                     # vidéo vide
 
 
-def test_thin_keeps_protected_and_spaces_auto():
+def test_thin_never_removes_cards_only_spaces_auto_videos():
     sents, words = sents_every(80)            # 0 → 790 s
     vis = [{"kind": "article", "s0": 35, "asset": {"x": 1}, "label": "a35"},   # 350 s
            {"kind": "article", "s0": 40, "asset": {"x": 1}, "label": "a40"},   # 400 s : 50 s après → retiré
@@ -37,9 +40,9 @@ def test_thin_keeps_protected_and_spaces_auto():
            {"forced_t": 600.0, "asset": {"source": "presse"}}]                   # auto, 40 s après → retiré
     info = {}
     K.thin(ins, vis, words, sents, [], info)
-    assert [v["label"] for v in vis] == ["a35", "ma photo", "w55", "a10", "a11"]
-    assert [i["asset"]["source"] for i in ins] == ["écoutez ça"]
-    assert len(info["thinned"]) == 2
+    assert [v["label"] for v in vis] == ["a35", "a40", "ma photo", "w55", "a10", "a11"]    # aucune carte retirée
+    assert [i["asset"]["source"] for i in ins] == ["écoutez ça"]                    # vidéo auto 40 s après : retirée
+    assert len(info["thinned"]) == 1
 
 
 class FakeAI:

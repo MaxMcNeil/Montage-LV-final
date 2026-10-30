@@ -29,7 +29,10 @@ FIRST = 300.0       # les 5 premières minutes…
 GAP1 = 60.0         # … un extrait au moins toutes les 60 s
 GAP2 = 120.0        # ensuite toutes les 2 min (cible)…
 GAP2_MAX = 135.0    # … jamais plus de 2 min 15 sans rien
-AUTO_SEP = 90.0     # après 5 min : pas d'élément automatique à moins de 1 min 30 du précédent
+AUTO_SEP = 90.0     # après 5 min : extraits VIDÉO automatiques (ils coupent ta parole) espacés d'au moins 1 min 30
+CARD_GAP = 45.0     # après 5 min : une carte (article, presse, photo) environ toutes les 45 s…
+CARD_TOL = 15.0     # … jamais plus d'1 min sans rien
+CARD_SEP = 30.0     # … et jamais deux cartes ajoutées à moins de 30 s
 QC_HOLE = 150.0     # contrôle qualité : ⚠ si un trou de plus de 2 min 30 reste après 5 min
 MIN_SEP = 25.0      # jamais deux extraits à moins de 25 s
 DMIN, DMAX = 6, 15  # durée d'un extrait de rythme
@@ -131,8 +134,9 @@ def fill(ai, words: list, sents: list, att: list, inserts: list, used: dict, sil
     from .keywords import _ctx, _sents_in, _videos_text
     from .timeline import find_pause
     info = {"added": [], "holes": [], "cards": [], "thinned": [],
-            "rule": "5 premières minutes : un élément (extrait, article ou photo) au moins toutes les 60 s ; ensuite un "
-                    "environ toutes les 2 min (2 min 15 max), pas d'ajout automatique à moins de 1 min 30 du précédent"}
+            "rule": "5 premières minutes : un élément (extrait, article ou photo) au moins toutes les 60 s ; ensuite une "
+                    "carte (article, presse, photo) environ toutes les 45 s (1 min max), et un extrait vidéo automatique "
+                    "au plus toutes les 1 min 30 (il met ta parole en pause)"}
     vids = [x for x in att if x["kind"] == "video" and x.get("duration", 0) >= 3]
     if not sents or not words:
         return info
@@ -352,7 +356,7 @@ def holes(times: list, t_start: float, t_end: float, opener: bool) -> list[tuple
         cur = prev
         while True:
             first = cur - t_start < FIRST
-            lim, tol, sp = (GAP1, 5.0, MIN_SEP) if first else (GAP2, GAP2_MAX - GAP2, AUTO_SEP)
+            lim, tol, sp = (GAP1, 5.0, MIN_SEP) if first else (CARD_GAP, CARD_TOL, CARD_SEP)
             if t - cur <= lim + tol:
                 break
             out.append((cur + sp, cur + lim))
@@ -489,21 +493,25 @@ def fill_cards(ai, words, sents, inserts, visuals, sil, lang, opener, pool: dict
 
 
 def thin(inserts: list, visuals: list, words, sents, sil, info: dict) -> None:
-    """Après 5 min : pas d'élément AUTOMATIQUE à moins de 1 min 30 du précédent (rythme régulier, sans paquets).
-    Les éléments protégés (tes « écoutez ça », tes pièces jointes) passent toujours. Les retraits sont listés."""
+    """Les CARTES (articles, presse, photos) ne sont jamais retirées ici : elles s'affichent à côté de toi sans couper ta
+    parole (la ligne de temps les espace d'elle-même, jamais deux à la fois). Seuls les extraits VIDÉO automatiques
+    (ils mettent ta parole en pause) restent espacés : après 5 min, pas à moins de 1 min 30 de l'extrait précédent.
+    Tes « écoutez ça », tes pièces jointes et l'ouverture choc passent toujours. Les retraits sont listés."""
     if not sents:
         return
     t_start = sents[0]["t0"]
     last = None
     drop_ins, drop_vis = [], []
     for e in elements(inserts, visuals, words, sents, sil):
+        if e["kind"] != "video":
+            continue
         if e["t"] - t_start < FIRST:
             last = e["t"]
             continue
         if e["protected"] or last is None or e["t"] - last >= AUTO_SEP:
             last = e["t"]
             continue
-        (drop_ins if e["kind"] == "video" else drop_vis).append(e["obj"])
+        drop_ins.append(e["obj"])
         o = e["obj"]
         lab = (o.get("asset") or {}).get("source") if e["kind"] == "video" else (o.get("label") or o.get("source"))
         info.setdefault("thinned", []).append({"t": e["t"], "kind": e["kind"], "label": str(lab or "")[:100],
@@ -513,7 +521,7 @@ def thin(inserts: list, visuals: list, words, sents, sil, info: dict) -> None:
     if drop_vis:
         visuals[:] = [v for v in visuals if not any(v is d for d in drop_vis)]
     if drop_ins or drop_vis:
-        log.info("Rythme : %d élément(s) automatique(s) retiré(s) (moins de 1 min 30 après le précédent)",
+        log.info("Rythme : %d extrait(s) vidéo automatique(s) retiré(s) (moins de 1 min 30 après le précédent)",
                  len(drop_ins) + len(drop_vis))
 
 
