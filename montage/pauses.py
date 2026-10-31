@@ -252,3 +252,108 @@ def voice_free_fn(src: Path, work: Path, words: list):
             best = max(best, run_)
         return best * HOP / SR < 0.25
     return free
+
+
+# ------------------------------------------------------------------ garde anti « première lettre mangée »
+ENV_SR = 16000
+ENV_HOP = 160      # 10 ms
+
+
+def sound_env(src: Path, work: Path) -> dict | None:
+    """Énergie du son toutes les 10 ms : globale ET aigus (là où vivent les « s », « ch », « f », « t » — des sons
+    faibles en volume, souvent pris pour du silence). Sert à vérifier chaque coupe à l'oreille, pas seulement
+    d'après les horodatages de la transcription (souvent en retard de 0,1 à 0,3 s sur une consonne après une pause).
+    Mis en cache. None si l'analyse est impossible (le montage se fait alors comme avant)."""
+    cache = work / "sound_env.npz"
+    try:
+        z = np.load(cache)
+        return {k: (z[k] if z[k].ndim else float(z[k])) for k in z.files}
+    except (OSError, ValueError):
+        pass
+    try:
+        p = subprocess.Popen(["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-i", str(src), "-vn", "-ac", "1",
+                              "-ar", str(ENV_SR), "-f", "s16le", "-"], stdout=subprocess.PIPE)
+        bb, hf, tail = [], [], np.zeros(2, np.float32)
+        blk = ENV_HOP * 6000                       # 60 s par bloc : mémoire faible même pour 2 h
+        while True:
+            raw = p.stdout.read(blk * 2)
+            if not raw:
+                break
+            x = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            n = len(x) // ENV_HOP
+            if n == 0:
+                break
+            x = x[:n * ENV_HOP]
+            d2 = np.diff(np.concatenate([tail, x]), n=2)  # double différence : aigus fortement mis en avant
+            tail = x[-2:]
+            bb.append(20 * np.log10(np.sqrt(np.mean(x.reshape(n, ENV_HOP) ** 2, axis=1)) + 1e-9))
+            hf.append(20 * np.log10(np.sqrt(np.mean(d2[:n * ENV_HOP].reshape(n, ENV_HOP) ** 2, axis=1)) + 1e-9))
+        p.wait(timeout=60)
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        log.warning("analyse fine du son impossible : %s", e)
+        return None
+    if not bb:
+        return None
+    bb, hf = np.concatenate(bb), np.concatenate(hf)
+    if len(bb) < 200:
+        return None
+    out = {"bb": bb, "hf": hf, "fps": float(ENV_SR / ENV_HOP)}
+    for k in ("bb", "hf"):
+        lo, hi = float(np.percentile(out[k], 10)), float(np.percentile(out[k], 90))
+        out[k + "_thr"] = lo + max(6.0 if k == "bb" else 8.0, 0.22 * (hi - lo))
+    try:
+        np.savez(cache, **out)
+    except OSError:
+        pass
+    return out
+
+
+def active_frames(env: dict) -> np.ndarray:
+    """True quand un son de parole est présent (voyelle OU consonne aiguë), au-dessus du bruit de fond."""
+    if "_act" not in env:
+        env["_act"] = (env["bb"] > env["bb_thr"]) | (env["hf"] > env["hf_thr"])
+    return env["_act"]
+
+
+def guard_cuts(keep: list, env: dict | None, min_start: float = 0.0, back: float = 0.6, fwd: float = 0.5,
+               pad: float = 0.05) -> tuple[list, int]:
+    """Chaque reprise après une coupe démarre AVANT le premier son réel (et chaque fin de morceau va jusqu'au bout du
+    dernier son), d'après l'oreille et non plus seulement la transcription. Jamais plus de 0,6 s en arrière ni 0,5 s
+    en avant, jamais par-dessus le morceau voisin. Retourne (plages, nombre de coupes corrigées)."""
+    if not env or not keep:
+        return keep, 0
+    from .config import FPS
+    from .util import q
+    act = active_frames(env)
+    fps, n = env["fps"], len(act)
+    fr = lambda t: max(0, min(n - 1, int(t * fps)))  # noqa: E731
+    out = [list(r) for r in keep]
+    moved = 0
+    for i, r in enumerate(out):
+        a, b = r
+        prev_b = out[i - 1][1] if i > 0 else max(0.0, min_start)
+        # début : on recule tant qu'il y a du son juste avant (début de mot ou consonne)
+        j, lo = fr(a) - 1, fr(max(prev_b, a - back))
+        if j >= lo and act[j]:
+            while j >= lo and act[j]:
+                j -= 1
+            na = (j + 1) / fps - pad if j >= lo else a - 0.12   # son continu : petit recul de sécurité
+            na = max(prev_b, min_start if i == 0 else prev_b, na)
+            if na < a - 1e-3:
+                r[0] = q(na)
+                moved += 1
+        # fin : on va jusqu'au bout du son en cours (fin de mot)
+        nxt_a = keep[i + 1][0] if i + 1 < len(keep) else env["bb"].size / fps
+        j, hi = fr(b), fr(min(nxt_a, b + fwd))
+        if j < hi and act[j]:
+            while j < hi and act[j]:
+                j += 1
+            nb = min(j / fps + pad, nxt_a) if j < hi else min(b + 0.12, nxt_a)
+            if nb > b + 1e-3:
+                r[1] = q(nb)
+                moved += 1
+    # jamais de chevauchement : deux morceaux qui se touchent restent bord à bord (aucune perte, aucun doublon)
+    for i in range(1, len(out)):
+        if out[i][0] < out[i - 1][1]:
+            out[i][0] = out[i - 1][1]
+    return [(a, b) for a, b in out if b - a >= 2 / FPS], moved

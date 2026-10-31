@@ -470,6 +470,13 @@ def main(argv=None) -> int:
             log.warning("mesure du niveau de ta voix impossible : %s", e)
     keep = keep_ranges(words, sil_all, info["duration"], opts["couper_silences"], b0, long_gap=long_gap,
                        voice_free=voice_free)
+    env_son = None
+    if info["audio"]:
+        try:   # analyse fine du son : chaque coupe est vérifiée à l'oreille (aucun début de mot mangé)
+            from .pauses import sound_env
+            env_son = sound_env(src, work)
+        except Exception as e:  # noqa: BLE001
+            log.warning("analyse fine du son impossible : %s (coupes comme avant)", e)
     energy, voice_info = None, None
     if opts.get("mise_en_scene") != "non" and info["audio"] and sents:
         from .voix import analyse
@@ -496,7 +503,7 @@ def main(argv=None) -> int:
             outro_v = None
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
                             opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats,
-                            outro=outro_v)
+                            outro=outro_v, env=env_son, min_start=b0)
     if voice_info is not None:
         voice_info["stats"] = zstats
     if kw_info:  # mots-clés : extrait réellement placé ? (sinon la raison est notée)

@@ -185,7 +185,8 @@ def tighten_inserts(pts: list, keep: list, words: list, sil: list, voice_free=No
 
 
 def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None,
-             sil=None, voice_free=None, energy=None, stats=None, outro=None, outro_dur: float = 5.5) -> tuple[list, list]:
+             sil=None, voice_free=None, energy=None, stats=None, outro=None, outro_dur: float = 5.5,
+             env=None, min_start: float = 0.0) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -227,7 +228,7 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         if t is None and ins.get("attachment"):
             # TA vidéo jointe doit TOUJOURS paraître : le plus petit blanc entre deux mots suffit (jamais sur un mot) ;
             # l'extrait met ta vidéo en pause à cet endroit, donc ta parole n'est jamais coupée
-            t = any_gap(words, sents, keep, a, [p["t"] for p in pts])
+            t = any_gap(words, sents, keep, a, [p["t"] for p in pts], env=env)
             if t is not None:
                 log.info("vidéo jointe : aucun vrai silence autour de la phrase %d → placée dans le petit blanc entre "
                          "deux mots à %.2f s (ta phrase n'est pas coupée)", a, t)
@@ -238,6 +239,24 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         pts.append({"t": t, **ins})
     # 1b) pas de vide autour des extraits : pause ramenée à une respiration avant et après
     keep = tighten_inserts(pts, keep, words, sil or [], voice_free)
+    # 1c) à l'oreille : aucune coupe ne mange le début (ni la fin) d'un mot — « s », « ch », « f »… compris
+    if env is not None:
+        from .pauses import guard_cuts
+        old_keep = list(keep)
+        keep, moved = guard_cuts(keep, env, min_start=min_start)
+        if moved:
+            log.info("Coupes vérifiées à l'oreille : %d reprise(s)/fin(s) décalée(s) pour ne manger aucun son", moved)
+        if stats is not None:
+            stats["coupes_corrigees"] = moved
+        if len(old_keep) == len(keep):   # les extraits restent calés pile sur la reprise (ou la fin) corrigée
+            for p in pts:
+                for (oa, ob), (na, nb) in zip(old_keep, keep):
+                    if abs(p["t"] - oa) < 1e-6:
+                        p["t"] = na
+                        break
+                    if abs(p["t"] - ob) < 1e-6:
+                        p["t"] = nb
+                        break
     # 2) médias à côté de toi : fenêtre calée sur le mot déclencheur
     chap_t = [sents[c["s"]]["t0"] for c in chapters if c["s"] < len(sents)]
     first_t = keep[0][0]
@@ -400,7 +419,7 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
 
 
 def any_gap(words: list, sents: list, keep: list, after: int, taken: list, look_back: int = 3,
-            look_ahead: int = 6) -> float | None:
+            look_ahead: int = 6, env=None) -> float | None:
     """Dernier recours pour TA vidéo jointe : le blanc entre deux mots le plus adapté autour de la phrase « after »,
     même tout petit (l'extrait met ta vidéo en pause : rien n'est coupé). Priorité : fin de phrase, puis le blanc le
     plus long, puis le plus proche. Jamais sur un mot, jamais à moins de 3 s d'un autre extrait."""
@@ -416,7 +435,18 @@ def any_gap(words: list, sents: list, keep: list, after: int, taken: list, look_
         if b - a < 0.02:           # mots collés : on ne s'y glisse pas
             continue
         t = None
-        for c in (q((a + b) / 2), math.ceil(a * FPS - 1e-6) / FPS, math.floor(b * FPS + 1e-6) / FPS):
+        cands = [q((a + b) / 2), math.ceil(a * FPS - 1e-6) / FPS, math.floor(b * FPS + 1e-6) / FPS]
+        loud = 0.0
+        if env is not None:   # à l'oreille : l'instant le plus calme du blanc (jamais au milieu d'un « s »)
+            from .pauses import active_frames
+            act, fps_e = active_frames(env), env["fps"]
+            i0, i1 = int(a * fps_e), max(int(a * fps_e) + 1, int(b * fps_e))
+            seg = env["bb"][i0:i1] + 0.5 * env["hf"][i0:i1]
+            if len(seg):
+                k_ = int(seg.argmin())
+                cands = [q((i0 + k_ + 0.5) / fps_e)] + cands
+                loud = float(act[i0:i1].mean()) if i1 > i0 else 1.0
+        for c in cands:
             c = _snap(round(c, 6), keep)                 # instant pile sur une image, entre les deux mots
             if c is not None and a - 1e-6 <= c <= b + 1e-6:
                 t = c
@@ -426,7 +456,7 @@ def any_gap(words: list, sents: list, keep: list, after: int, taken: list, look_
         if any(w["t0"] < t < w["t1"] for w in words) or any(abs(t - x) < 3.0 for x in taken):
             continue
         end_sentence = bool(re.search(r"[.!?…؟,;:]['\"»”)]*$", words[k]["w"]))
-        key = (0 if end_sentence else 1, -round(b - a, 2), abs(t - target))
+        key = (round(loud, 1), 0 if end_sentence else 1, -round(b - a, 2), abs(t - target))
         if best is None or key < best[0]:
             best = (key, t)
     return best[1] if best else None
