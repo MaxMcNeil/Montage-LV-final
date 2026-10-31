@@ -70,4 +70,7 @@ def test_photo_window_is_fully_transparent(tmp_path):
         hx, hy, hw, hh = a["hole"]
         fr = Image.open(a["frame"]).convert("RGBA")
         assert fr.getpixel((hx + hw // 2, hy + hh // 2))[3] == 0, kind
-        assert fr.getpixel((hx + 30, hy + 30))[3] == 0, kind
+        if kind != "outro":                                       # (logo de fin : fenêtre ronde)
+            assert fr.getpixel((hx + 30, hy + 30))[3] == 0, kind
+        else:
+            assert fr.getpixel((hx + hw // 2, hy + 30))[3] == 0

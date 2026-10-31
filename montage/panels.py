@@ -180,10 +180,10 @@ def render_panel(kind: str, pw: int, ph: int, data: dict, out: Path, name: str) 
         if logo is not None:
             ls = int(min(pw * 0.40, ph * 0.40))
             hole = ((pw - ls) // 2, int(ph * 0.08), ls, ls)
-            im, d = _base(pw, ph, C.NAVY, hole=hole, hole_r=8)
+            im, d = _base(pw, ph, C.NAVY, hole=hole, hole_r=ls // 2)   # fenêtre ronde : aucun carré visible
             ty = hole[1] + ls + 30
             lg = logo.convert("RGBA").copy()
-            lg.thumbnail((ls * 2 - 40, ls * 2 - 40), Image.LANCZOS)
+            lg.thumbnail((ls * 2 - 8, ls * 2 - 8), Image.LANCZOS)
             photo = Image.new("RGB", (ls * 2, ls * 2), C.NAVY)
             photo.paste(lg, ((ls * 2 - lg.width) // 2, (ls * 2 - lg.height) // 2), lg)
         else:

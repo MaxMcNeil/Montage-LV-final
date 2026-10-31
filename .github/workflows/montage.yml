@@ -62,6 +62,11 @@ on:
         type: choice
         options: [auto, fr, ar, it, en, non]
         default: auto
+      version_verticale:
+        description: "📱 Vidéo HORIZONTALE : faire aussi une version verticale (pour les Shorts, rien de coupé). auto = seulement si les Shorts sont enchaînés"
+        type: choice
+        options: [auto, oui, non]
+        default: auto
       chaine_shorts:
         description: "🔗 Enchaîner les Shorts (Push-overlay) après ce montage"
         type: choice
@@ -246,6 +251,7 @@ jobs:
           MONTAGE_EFFETS_SONORES: ${{ inputs.effets_sonores }}
           MONTAGE_CHAINE: ${{ inputs.chaine }}
           MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio || github.event.client_payload.voix_studio }}
+          MONTAGE_VERSION_VERTICALE: ${{ inputs.version_verticale || 'auto' }}
         run: |
           mkdir -p fonts state
           if [ -n "${YT_COOKIES:-}" ]; then printf '%s\n' "$YT_COOKIES" > "$RUNNER_TEMP/yt-cookies.txt"; export YT_COOKIES_FILE="$RUNNER_TEMP/yt-cookies.txt"; fi

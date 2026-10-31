@@ -41,6 +41,15 @@ if [ "$MODE" = "publier" ]; then
   SAFE=$(python3 -c 'import re,sys,unicodedata as u;t=u.normalize("NFKD",sys.argv[1]).encode("ascii","ignore").decode();print(re.sub(r"[^A-Za-z0-9._-]+","_",t).strip("_")[:50] or "video")' "${BASE:-video}")
   NAME="montage-$SAFE.mp4"
   ln -f "$F" "output/$NAME" 2>/dev/null || cp "$F" "output/$NAME"   # lien : pas de deuxième copie sur le disque
+  # vidéo horizontale : le montage a aussi rendu une version VERTICALE propre → c'est elle qui part aux Shorts
+  SNAME="$NAME"; EXTRA=()
+  if [ -s output/montage-shorts-vertical.mp4 ]; then
+    SNAME="montage-$SAFE-vertical-shorts.mp4"
+    ln -f output/montage-shorts-vertical.mp4 "output/$SNAME" 2>/dev/null || cp output/montage-shorts-vertical.mp4 "output/$SNAME"
+    EXTRA=("output/$SNAME")
+    echo "Version verticale pour les Shorts : $SNAME"
+    MBV=$(( $(stat -c %s "output/$SNAME") / 1048576 )); [ "$MBV" -gt "$MB" ] && MB=$MBV   # la plus lourde décide
+  fi
 
   echo "Ménage : sorties de chaîne de plus de 2 jours"
   gh release list --repo "$REPO" --limit 100 --json tagName,createdAt \
@@ -63,14 +72,14 @@ if [ "$MODE" = "publier" ]; then
     if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1 \
        || gh release create "$TAG" --repo "$REPO" --prerelease --title "🔗 CHAÎNE $CHAINE_ID — Montage final — $VERDICT" --notes-file /tmp/notes-chaine.md; then
       for i in 1 2 3; do
-        if gh release upload "$TAG" "output/$NAME" output/PLAN.md output/plan.json --repo "$REPO" --clobber; then
+        if gh release upload "$TAG" "output/$NAME" "${EXTRA[@]}" output/PLAN.md output/plan.json --repo "$REPO" --clobber; then
           OU="release [$TAG](https://github.com/$REPO/releases/tag/$TAG)"; break
         fi
         sleep 8
       done
     fi
     if [ -n "$OU" ]; then
-      U="https://github.com/$REPO/releases/download/$TAG/$NAME"
+      U="https://github.com/$REPO/releases/download/$TAG/$SNAME"
       for i in 1 2 3 4 5; do curl -fsSIL --retry 2 -o /dev/null "$U" && { URL="$U"; break; }; sleep 6; done
       [ -n "$URL" ] || echo "::warning::lien de téléchargement de la release pas encore joignable : passage par Google Drive"
     fi
@@ -78,7 +87,7 @@ if [ "$MODE" = "publier" ]; then
   # 2) sinon : Google Drive chaine/<id>/ (privé)
   if [ -z "$URL" ]; then
     [ "$RC" = 0 ] || { out artifact 1; err "Montage trop lourd pour une release ($MB Mo) et Google Drive indisponible (secret RCLONE_CONF / rclone). Le montage est gardé dans les Artifacts de ce run (14 jours)."; }
-    L=$(stat -c %s "output/$NAME")
+    L=$(( $(stat -c %s "output/$NAME") + $( [ "$SNAME" != "$NAME" ] && stat -c %s "output/$SNAME" || echo 0) ))
     LIBRE=$(rclone about "$REMOTE:" --json 2>/dev/null | python3 -c 'import sys,json
 try: print(int(json.load(sys.stdin).get("free") or 0))
 except Exception: print(0)')
@@ -86,9 +95,14 @@ except Exception: print(0)')
       out artifact 1
       err "Google Drive presque plein : $((LIBRE / 1048576)) Mo libres, il en faut $((L / 1048576 + 300)) pour transmettre le montage ($MB Mo) aux Shorts. Le montage est gardé dans les Artifacts de ce run (14 jours). Libère de la place (corbeille comprise), puis « Re-run failed jobs »."
     fi
-    DST="$REMOTE:chaine/$CHAINE_ID/$NAME"
-    rclone copyto "output/$NAME" "$DST" --retries 5 --low-level-retries 20 --drive-chunk-size 64M \
+    if [ "$SNAME" != "$NAME" ]; then   # le montage horizontal (ta vidéo) est gardé à côté, dans le même dossier
+      rclone copyto "output/$NAME" "$REMOTE:chaine/$CHAINE_ID/$NAME" --retries 5 --low-level-retries 20 --drive-chunk-size 64M \
+        || echo "::warning::copie Google Drive du montage horizontal impossible (gardé dans les Artifacts de ce run)"
+    fi
+    DST="$REMOTE:chaine/$CHAINE_ID/$SNAME"
+    rclone copyto "output/$SNAME" "$DST" --retries 5 --low-level-retries 20 --drive-chunk-size 64M \
       || { out artifact 1; err "envoi Google Drive impossible (montage gardé dans les Artifacts de ce run)"; }
+    L=$(stat -c %s "output/$SNAME")
     R=$(rclone lsjson "$DST" --no-mimetype | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0]["Size"] if a else "")')
     [ "$L" = "$R" ] || { out artifact 1; err "taille différente après envoi Drive ($L / ${R:-?} octets)"; }
     FID=$(rclone lsjson "$DST" --no-mimetype | python3 -c 'import sys,json;a=json.load(sys.stdin);print(a[0].get("ID","") if a else "")')
@@ -97,7 +111,7 @@ except Exception: print(0)')
     [ -n "$OU" ] || OU="Google Drive, dossier chaine/$CHAINE_ID (supprimé après 2 jours : télécharge-le)"
   fi
 
-  out video_url "$URL"; out video_id "$FID"; out video_nom "$NAME"
+  out video_url "$URL"; out video_id "$FID"; out video_nom "$SNAME"
   out joints "$( [ -s input/joints-utilises.txt ] && base64 -w0 input/joints-utilises.txt || true )"
   { echo "### ✅ 🔗 Chaîne \`$CHAINE_ID\` — $VERDICT — montage ($MB Mo) → $OU"
     echo; echo "Transmis aux Shorts : $([ -n "$URL" ] && echo "lien de la release" || echo "Google Drive (privé)")"

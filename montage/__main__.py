@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -483,10 +484,12 @@ def main(argv=None) -> int:
             if brand.get("end_src"):   # transparence du logo gardée (sinon carré blanc autour)
                 from PIL import Image as _Im
                 lg_ = _Im.open(brand["end_src"]).convert("RGBA")
+            l1_, l2_ = plan.get("outro") or C.ui(lang, "outro"), C.ui(lang, "sub")
+            if norm(l2_.split()[0])[:5] and norm(l2_.split()[0])[:5] in norm(l1_):
+                l2_ = ""   # « abonnez-vous » déjà dans la phrase de fin : pas de répétition
             outro_v = {"kind": "outro", "s0": len(sents) - 1, "s1": len(sents) - 1, "trigger": "", "priority": 0,
                        "label": plan.get("outro") or C.ui(lang, "outro"), "source": "carte de fin",
-                       "asset": render_panel("outro", pw, ph, {"text": plan.get("outro") or C.ui(lang, "outro"),
-                                                               "sublabel": C.ui(lang, "sub"), "logo": lg_},
+                       "asset": render_panel("outro", pw, ph, {"text": l1_, "sublabel": l2_, "logo": lg_},
                                              pdir, "outro")}
         except Exception as e:  # noqa: BLE001 - repli : bandeau de fin texte
             log.warning("carte de fin (cadre) impossible : %s → bandeau texte", e)
@@ -520,45 +523,53 @@ def main(argv=None) -> int:
     # 6) textes à l'écran
     face = face_center(vsrc)
     log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
-    sub = ASS(orient, lang, face)
-    h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
-    hook_end = h0 + 4.2 if plan.get("hook") else 0.0
-    if plan.get("hook"):
-        sub.hook(plan["hook"], h0, hook_end)
-    chap_times = []
-    for i, c in enumerate(plan["chapters"]):
-        t = out_time(segs, sents[c["s"]]["t0"]) if c["s"] < len(sents) else None
-        # le 1er chapitre est couvert par l'accroche ; jamais deux textes en même temps
-        if t is None or i == 0 or c["s"] <= (sents[0]["i"] if sents else 0) or t < h0 + 1.0 or t > total - 12:
-            continue
-        if t < hook_end + 0.4:
-            t = hook_end + 0.4
-        if chap_times and t < chap_times[-1] + 6.5:
-            continue
-        # la carte reste 5 s, mais s'efface avant l'extrait suivant (jamais deux bandeaux l'un sur l'autre)
-        nxt = min([x.out0 for x in segs if x.kind == "insert" and x.out0 > t] + [t + 99])
-        dur = min(5.0, nxt - t - 0.25)
-        if dur < 2.6:
-            continue
-        sub.chapter(t, i + 1, c["title"], dur=dur)
-        chap_times.append(t)
-    for s in segs:
-        if s.kind == "insert":
-            sub.insert(s.out0, s.dur, s.insert["asset"], subtitles=opts["sous_titres"] != "non")
-    if opts["sous_titres"] != "non":
-        emph = {norm(w) for ws in plan.get("emphasis", {}).values() for w in ws for w in [w] if norm(w)}
-        emph = {x for w in emph for x in w.split() if len(x) > 2}
-        sub.captions(words, segs, emph)
+    def _textes(o_: str, main_: bool = True):
+        """Textes à l'écran (accroche, chapitres, crédits des extraits, sous-titres, fin) pour un format donné."""
+        sub = ASS(o_, lang, face)
+        h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
+        hook_end = h0 + 4.2 if plan.get("hook") else 0.0
+        if plan.get("hook"):
+            sub.hook(plan["hook"], h0, hook_end)
+        chap_times = []
+        for i, c in enumerate(plan["chapters"]):
+            t = out_time(segs, sents[c["s"]]["t0"]) if c["s"] < len(sents) else None
+            # le 1er chapitre est couvert par l'accroche ; jamais deux textes en même temps
+            if t is None or i == 0 or c["s"] <= (sents[0]["i"] if sents else 0) or t < h0 + 1.0 or t > total - 12:
+                continue
+            if t < hook_end + 0.4:
+                t = hook_end + 0.4
+            if chap_times and t < chap_times[-1] + 6.5:
+                continue
+            # la carte reste 5 s, mais s'efface avant l'extrait suivant (jamais deux bandeaux l'un sur l'autre)
+            nxt = min([x.out0 for x in segs if x.kind == "insert" and x.out0 > t] + [t + 99])
+            dur = min(5.0, nxt - t - 0.25)
+            if dur < 2.6:
+                continue
+            sub.chapter(t, i + 1, c["title"], dur=dur)
+            chap_times.append(t)
+        for s in segs:
+            if s.kind == "insert":
+                sub.insert(s.out0, s.dur, s.insert["asset"], subtitles=opts["sous_titres"] != "non")
+        if opts["sous_titres"] != "non":
+            emph = {norm(w) for ws in plan.get("emphasis", {}).values() for w in ws for w in [w] if norm(w)}
+            emph = {x for w in emph for x in w.split() if len(x) > 2}
+            sub.captions(words, segs, emph)
+        outro_t = [s_.out0 for s_ in segs if s_.kind == "split" and s_.panel and s_.panel["v"] is outro_v][:1] \
+            if outro_v is not None and outro_v.get("placed") else []
+        if opts["fin"] != "non" and not outro_t:   # repli : bandeau texte (la carte n'a pas pu être placée)
+            sub.outro(total, plan.get("outro") or C.ui(lang, "outro"), C.ui(lang, "sub"),
+                      logo=bool(brand.get("end_src")) and o_ == "h" and main_)
+            if main_:
+                try:
+                    from .chaine import end_card
+                    end_card(brand, getattr(sub, "outro_box", None), C.SIZE[orient][0], work / "chaine")
+                except Exception as e:  # noqa: BLE001
+                    brand["notes"].append(f"grand logo de fin omis ({e})")
+        return sub, chap_times
+
+    sub, chap_times = _textes(orient)
     outro_t = [s_.out0 for s_ in segs if s_.kind == "split" and s_.panel and s_.panel["v"] is outro_v][:1] \
         if outro_v is not None and outro_v.get("placed") else []
-    if opts["fin"] != "non" and not outro_t:   # repli : bandeau texte (la carte n'a pas pu être placée)
-        sub.outro(total, plan.get("outro") or C.ui(lang, "outro"), C.ui(lang, "sub"),
-                  logo=bool(brand.get("end_src")) and orient == "h")
-        try:
-            from .chaine import end_card
-            end_card(brand, getattr(sub, "outro_box", None), C.SIZE[orient][0], work / "chaine")
-        except Exception as e:  # noqa: BLE001
-            brand["notes"].append(f"grand logo de fin omis ({e})")
     ass_path = (work / "textes.ass").resolve()
     ass_path.write_text(sub.text(), encoding="utf-8")
 
@@ -570,6 +581,7 @@ def main(argv=None) -> int:
     R.BRAND_FAILS.clear()
     R.OPENER_NOTES.clear()
     R.INSERT_NOTES.clear()
+    T_RENDER0 = time.time()
     vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
     main_wav = extract_main_audio(src, info, work / "main.wav")
     audio_note = ""
@@ -586,6 +598,26 @@ def main(argv=None) -> int:
         tagc = f"montage-lv-final;logo={orient}-haut-droite;chaine={prof_.get('code', '')};langue={lang}"
     final = mux(vid, aud, outd / "montage-final.mp4", comment=tagc)
     log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
+    # 7b) vidéo HORIZONTALE + Shorts enchaînés : une version VERTICALE propre pour les Shorts (mêmes coupes, mêmes
+    #     cartes, même son), sinon Push-overlay découperait une bande au centre (cartes, cadres et titres coupés)
+    vert_note = None
+    want_v = (os.environ.get("MONTAGE_VERSION_VERTICALE") or "auto").strip().lower()
+    chained = bool((os.environ.get("CHAINE_ID") or "").strip()) or \
+        (os.environ.get("MONTAGE_CHAINE_SHORTS") or "").strip().lower() == "oui"
+    if orient == "h" and (want_v == "oui" or (want_v == "auto" and chained)):
+        render_min = (time.time() - T_RENDER0) / 60
+        left_min = float(os.environ.get("MONTAGE_BUDGET_MIN", "320")) - (time.time() - T0) / 60
+        if render_min * 1.3 + 5 > left_min:
+            vert_note = (f"⚠ version verticale pour les Shorts non faite (temps restant {left_min:.0f} min, il en faudrait "
+                         f"~{render_min * 1.3 + 5:.0f}) : les Shorts seront recadrés au centre")
+        else:
+            try:
+                vert_note = _vertical_version(segs, sub_fn=_textes, brand=brand, aud=aud, vsrc=vsrc, vinfo=vinfo,
+                                              face=face, work=work, outd=outd, fonts=fonts, lang=lang)
+            except Exception as e:  # noqa: BLE001 - jamais bloquant : le montage horizontal est déjà prêt
+                log.warning("version verticale impossible : %s", e)
+                vert_note = f"⚠ version verticale pour les Shorts impossible ({type(e).__name__}) : Shorts recadrés au centre"
+        log.info("Version verticale : %s", vert_note)
     log.info("%s", ai.usage_line())
 
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
@@ -611,6 +643,10 @@ def main(argv=None) -> int:
     for n_ in R.INSERT_NOTES:
         if n_.startswith("⚠"):
             qc.append((False, n_.lstrip("⚠ ")))
+    if vert_note:
+        brand.setdefault("notes", []).append("📱 " + vert_note)
+        if vert_note.startswith("⚠"):
+            qc.append((False, vert_note.lstrip("⚠ ")))
     if R.BRAND_FAILS:
         brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
     brand["why"] = chaine_why
@@ -775,6 +811,46 @@ def _num(v) -> float:
         return float(v or 0)
     except (TypeError, ValueError):
         return 0.0
+
+
+def _vertical_version(segs, sub_fn, brand, aud, vsrc, vinfo, face, work, outd, fonts, lang) -> str:
+    """Même montage (coupes, cartes, extraits, son) rendu en 1080x1920 : output/montage-shorts-vertical.mp4."""
+    from . import chaine as K
+    from . import render as R
+    t0 = time.time()
+    # place disque : les morceaux du rendu horizontal (déjà assemblé dans le montage final) ne servent plus
+    shutil.rmtree(work / "segments", ignore_errors=True)
+    (work / "video.mp4").unlink(missing_ok=True)
+    sub_v, _ = sub_fn("v", main_=False)
+    ass_v = (work / "textes_v.ass").resolve()
+    ass_v.write_text(sub_v.text(), encoding="utf-8")
+    bv = None
+    if brand.get("profil") and brand.get("bug"):
+        try:
+            b2 = K.prepare(brand["profil"], "v", work / "chaine_v")
+            bv = brand_check(b2, work / "chaine_v")
+        except Exception as e:  # noqa: BLE001
+            log.warning("logo de la version verticale : %s", e)
+    old_brand, old_fails = R.BRAND, list(R.BRAND_FAILS)
+    old_op, old_ins = list(R.OPENER_NOTES), list(R.INSERT_NOTES)
+    R.BRAND = bv
+    R.BRAND_FAILS.clear()
+    try:
+        wv = (work / "vertical").resolve()
+        wv.mkdir(parents=True, exist_ok=True)
+        ctx_v = Ctx(Path(vsrc).resolve(), vinfo, face, "v", wv, ass_v, fonts)
+        vid_v = render_video(segs, ctx_v, wv / "video_v.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
+        tag = ""
+        if bv and bv.get("bug") and len(R.BRAND_FAILS) < len(segs):
+            tag = f"montage-lv-final;logo=v-haut-droite;chaine={(brand.get('profil') or {}).get('code', '')};langue={lang}"
+        out = mux(vid_v, aud, outd / "montage-shorts-vertical.mp4", comment=tag)
+    finally:
+        R.BRAND = old_brand
+        R.BRAND_FAILS[:] = old_fails
+        R.OPENER_NOTES[:], R.INSERT_NOTES[:] = old_op, old_ins
+    shutil.rmtree(work / "vertical" / "segments", ignore_errors=True)
+    return (f"version verticale pour les Shorts prête ({out.name}, rendue en {(time.time() - t0) / 60:.0f} min) : "
+            "mêmes coupes, cartes sous toi, rien de coupé")
 
 
 def brand_check(brand: dict, work: Path) -> dict | None:

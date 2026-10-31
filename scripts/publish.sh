@@ -18,6 +18,14 @@ MB=$(( $(stat -c %s "$F") / 1048576 ))
 if head -1 output/PLAN.md 2>/dev/null | grep -q "✅"; then VERDICT="✅ prêt à publier"; else VERDICT="⚠ à vérifier (voir PLAN.md)"; fi
 NAME="montage-${BASE:-video}.mp4"
 cp "$F" "output/$NAME"
+# vidéo horizontale + Shorts enchaînés : version VERTICALE propre, c'est elle qui part aux Shorts
+SNAME="$NAME"; EXTRA=()
+if [ -s output/montage-shorts-vertical.mp4 ]; then
+  SNAME="montage-${BASE:-video}-vertical-shorts.mp4"
+  cp output/montage-shorts-vertical.mp4 "output/$SNAME"
+  EXTRA=("output/$SNAME")
+  MBV=$(( $(stat -c %s "output/$SNAME") / 1048576 )); [ "$MBV" -gt "$MB" ] && MB=$MBV
+fi
 
 for t in ${CONSUMED:-}; do  # releases de pièces jointes utilisées : gardées (pour relancer), marquées ✅
   bash scripts/release-status.sh "$t" ok "pièces jointes utilisées par le montage du $(date -u +%d/%m/%Y) — réutilisables en écrivant « $t » dans le champ pieces_jointes" || true
@@ -42,7 +50,11 @@ if [ -n "${RCLONE_CONF:-}" ]; then
       if [ "$L" = "$R" ]; then
         rclone copyto output/PLAN.md "$DEST_DIR/${NAME%.mp4}-PLAN.md" -q || true
         OU+=("Google Drive \`$DEST_DIR/$NAME\`")
-        DRIVE_ID=$(rclone lsjson "$DEST_DIR/$NAME" --no-mimetype 2>/dev/null | python3 -c 'import sys,json
+        if [ "$SNAME" != "$NAME" ]; then
+          rclone copyto "output/$SNAME" "$DEST_DIR/$SNAME" --retries 5 --drive-chunk-size 64M -q \
+            || echo "::warning::Copie Google Drive de la version verticale impossible"
+        fi
+        DRIVE_ID=$(rclone lsjson "$DEST_DIR/$SNAME" --no-mimetype 2>/dev/null | python3 -c 'import sys,json
 try:
     a=json.load(sys.stdin); print(a[0].get("ID","") if a else "")
 except Exception: print("")' 2>/dev/null || true)
@@ -68,9 +80,9 @@ if [ "$MB" -lt "${RELEASE_MAX_MB:-1900}" ]; then
     head -c 120000 output/PLAN.md; } > /tmp/notes.md
   if gh release create "$TAG_OUT" --repo "$REPO" --prerelease --title "🎬 RÉSULTAT — Montage final — $VERDICT" --notes-file /tmp/notes.md; then
     for i in 1 2 3; do
-      if gh release upload "$TAG_OUT" "output/$NAME" output/PLAN.md output/plan.json --repo "$REPO" --clobber; then
+      if gh release upload "$TAG_OUT" "output/$NAME" "${EXTRA[@]}" output/PLAN.md output/plan.json --repo "$REPO" --clobber; then
         OU+=("[🎬 RÉSULTAT — Montage final](https://github.com/$REPO/releases/tag/$TAG_OUT)")
-        REL_URL="https://github.com/$REPO/releases/download/$TAG_OUT/$NAME"; break
+        REL_URL="https://github.com/$REPO/releases/download/$TAG_OUT/$SNAME"; break
       fi
       sleep 8
     done
@@ -95,6 +107,6 @@ else
   fi
 fi
 # pour les Shorts enchaînés (lancement à la main avec « chaine_shorts = oui ») : où trouver le montage
-{ echo "video_url=${REL_URL:-}"; echo "video_id=${DRIVE_ID:-}"; echo "video_nom=$NAME"; } >> "${GITHUB_OUTPUT:-/dev/null}"
+{ echo "video_url=${REL_URL:-}"; echo "video_id=${DRIVE_ID:-}"; echo "video_nom=$SNAME"; } >> "${GITHUB_OUTPUT:-/dev/null}"
 { echo "### $MSG"; echo; cat output/PLAN.md; } >> "$SUM"
 bash scripts/release-status.sh "${SRC_TAG:-}" ok "$MSG"

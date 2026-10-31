@@ -178,7 +178,6 @@ def render_split(seg, ctx: Ctx, out: Path):
     im_mask = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", lay["mask"])
     im_under = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", lay["under"])
     im_over = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", lay["over"])
-    im_frame = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", panel["frame"])
     fa_n = min(int(0.5 * FPS), N // 3)
     fb_n = min(int(0.42 * FPS), N // 3)
     g.add("[cat]split=4[cbg][ccard][cfa][cfb]")
@@ -192,7 +191,9 @@ def render_split(seg, ctx: Ctx, out: Path):
     g.add(f"[b1][card]overlay=x={cx}:y={cy}[b2]")
     g.add(f"[b2][{im_over}:v]overlay=x={cx}:y={cy}:shortest=1[b3]")
     # carte média (avec photo animée derrière le trou du cadre)
+    panel, ox, oy = _fit_panel(panel, px, py, pw, ph, ctx.work)
     fw, fh = panel["size"]
+    im_frame = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", panel["frame"])
     if panel.get("photo") and panel.get("hole"):
         hx, hy, hw, hh = panel["hole"]
         im_photo = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", panel["photo"])
@@ -208,15 +209,15 @@ def render_split(seg, ctx: Ctx, out: Path):
     t_in, d_in, d_out = 0.18, 0.62, 0.45
     t_out = max(t_in + d_in + 0.2, D - d_out - 0.12)
     g.add(f"[pn]fade=t=in:st={t_in}:d={d_in * 0.7:.3f}:alpha=1,fade=t=out:st={t_out:.3f}:d={d_out}:alpha=1[pf]")
-    x1 = px - P
+    x1 = ox
     if ctx.o == "h":
         x0 = W + 40 if seg.side == "left" else -fw - 40
         x2 = x0
         xe = (f"if(lt(t,{t_in}),{x0},if(lt(t,{t_in + d_in}),{x0}+({x1}-({x0}))*(1-pow(1-(t-{t_in})/{d_in},3)),"
               f"if(lt(t,{t_out:.3f}),{x1},{x1}+({x2}-({x1}))*pow((t-{t_out:.3f})/{d_out},3))))")
-        ye = f"{py - P}"
+        ye = f"{oy}"
     else:
-        y1 = py - P
+        y1 = oy
         y0 = H + 40
         xe = f"{x1}"
         ye = (f"if(lt(t,{t_in}),{y0},if(lt(t,{t_in + d_in}),{y0}+({y1}-({y0}))*(1-pow(1-(t-{t_in})/{d_in},3)),"
@@ -232,10 +233,46 @@ def render_split(seg, ctx: Ctx, out: Path):
     g.run(out, N, "out", out.with_suffix(".txt"))
 
 
+def _fit_panel(panel: dict, px: int, py: int, pw: int, ph: int, work: Path):
+    """Carte faite pour un autre format (ex. version verticale d'un montage horizontal) : réduite à l'identique (texte,
+    photo, ombre) pour tenir dans la zone média, centrée. Retourne (carte, x, y du coin de l'image avec son ombre)."""
+    P = C.SHADOW_PAD
+    fw, fh = panel["size"]
+    if abs(fw - (pw + 2 * P)) <= 2 and abs(fh - (ph + 2 * P)) <= 2:
+        return panel, px - P, py - P
+    from PIL import Image
+    k = min(pw / max(1, fw - 2 * P), ph / max(1, fh - 2 * P))
+    nw, nh = max(2, int(fw * k)), max(2, int(fh * k))
+    d = work / "panels_fit"
+    d.mkdir(parents=True, exist_ok=True)
+    stem = Path(panel["frame"]).stem
+    fr = d / f"{stem}_{pw}x{ph}.png"
+    if not fr.exists():
+        Image.open(panel["frame"]).resize((nw, nh), Image.LANCZOS).save(fr)
+    out = dict(panel, frame=str(fr), size=(nw, nh))
+    if panel.get("photo") and panel.get("hole"):
+        hx, hy, hw, hh = panel["hole"]
+        out["hole"] = (int(hx * k), int(hy * k), max(2, int(hw * k)) // 2 * 2, max(2, int(hh * k)) // 2 * 2)
+    pk = int(P * k)
+    return out, px + (pw - (nw - 2 * pk)) // 2 - pk, py + (ph - (nh - 2 * pk)) // 2 - pk
+
+
 def freeze(ctx: Ctx, t: float, out: Path) -> Path:
     t = max(0.0, min(t, ctx.info["duration"] - 0.05))
     run(["ffmpeg", "-y", "-ss", f"{t:.4f}", "-i", ctx.src, "-frames:v", "1", "-vf", ctx.full_chain(1.0), out])
     return out
+
+
+def _dims(asset: dict) -> tuple[int, int]:
+    """Largeur, hauteur de la vidéo d'un extrait (mémorisées dans l'extrait)."""
+    if not asset.get("_wh"):
+        try:
+            from .util import probe
+            i = probe(asset["video"])
+            asset["_wh"] = (int(i["w"] or 0), int(i["h"] or 0))
+        except Exception:  # noqa: BLE001
+            asset["_wh"] = (0, 1)
+    return asset["_wh"]
 
 
 OPENER_NOTES: list = []   # comment l'ouverture choc a été habillée (PLAN.md)
@@ -272,6 +309,9 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
         lay = card_layers(cw, ch, ctx.work / "layers")
         if ctx.o == "h":   # extrait entier visible (aucune partie coupée), centré dans la zone média
             vw, vh = pw // 2 * 2, int(pw * H / W) // 2 * 2
+        elif _dims(ins)[0] > _dims(ins)[1] * 1.2:
+            # vertical, extrait préparé en horizontal (version verticale d'un montage horizontal) : en entier
+            vw, vh = pw // 2 * 2, min(ph, int(pw * _dims(ins)[1] / _dims(ins)[0])) // 2 * 2
         else:              # vertical : la zone sous toi est remplie (centre de l'extrait)
             vw, vh = pw // 2 * 2, ph // 2 * 2
         vx, vy = px + (pw - vw) // 2, py + (ph - vh) // 2
@@ -296,8 +336,8 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
     else:
         vw, vh = int(W * 0.8) // 2 * 2, int(H * 0.8) // 2 * 2
         g.add("[acard]nullsink")
-        g.add(f"[cl]scale={vw}:{vh}:flags=bicubic,setsar=1[clv]")
-        g.add(f"[bg][clv]overlay=x={(W - vw) // 2}:y={(H - vh) // 2}:shortest=1,{norm}[x1]")
+        g.add(f"[cl]scale={vw}:{vh}:force_original_aspect_ratio=decrease:flags=bicubic,setsar=1[clv]")
+        g.add(f"[bg][clv]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1,{norm}[x1]")
     g.add(f"[{i_b}:v]{norm}[fb]")
     if not opener:   # extrait au milieu : fondu doux depuis ton plan (pas de coupe sèche)
         din = min(0.5, N / FPS / 4)
