@@ -306,12 +306,20 @@ def choose(ai, occ: list, words: list, vids: list, lang: str, maxd: float, avoid
                 excluded.setdefault(n, []).append((c["video"], c["a"], c["b"]))   # même passage qu'une autre annonce
                 continue
             ok = (c.get("check") or {}).get("ok", True)
-            if ok or attempt == 2:
+            if ok:
                 res[n] = c
+                res.pop(-1 - n, None)
             else:
                 excluded.setdefault(n, []).append((c["video"], c["a"], c["b"]))
                 c["rejected"] = True
-                res.setdefault(-1 - n, c)  # garde le 1er choix en réserve si la 2e tentative échoue
+                # en réserve : le passage le MIEUX noté à la vérification parmi tous les essais (pas le dernier)
+                def _sc(x):
+                    try:
+                        return float((x.get("check") or {}).get("score") or 0)
+                    except (TypeError, ValueError):
+                        return 0.0
+                if -1 - n not in res or _sc(c) > _sc(res[-1 - n]):
+                    res[-1 - n] = c
     # annonce restée sans passage (IA partielle) : choix par mots communs, pour ne jamais en laisser une vide
     miss = [n for n in range(len(occ)) if n not in res and -1 - n not in res]
     if miss:

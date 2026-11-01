@@ -92,3 +92,26 @@ def test_short_flag_by_language():
     assert not find_occurrences(_w("listen to what he says"))[0]["short"]
     assert not find_occurrences(_w("اسمعوا هذا الكلام"))[0]["short"]   # la plus longue l'emporte
     assert find_occurrences(_w("écoutez ça"))[0]["wait"] < 2
+
+
+def test_no_passage_verified_keeps_the_best_scored():
+    """Aucun passage validé après 3 essais : on garde le MIEUX noté (pas le dernier essayé)."""
+    words = _w("maintenant écoutez ça")
+    occ = find_occurrences(words)
+    vids = [{"id": "vid1", "name": "a.mp4", "duration": 90, "sentences": [
+        {"t0": 0, "t1": 8, "text": "Premier passage."}, {"t0": 20, "t1": 28, "text": "Deuxième passage."},
+        {"t0": 40, "t1": 48, "text": "Troisième passage."}]}]
+    picks = iter([(0, 8, 3), (20, 28, 7), (40, 48, 2)])   # (début, fin, note à la vérification)
+
+    class AI:
+        ok = True
+        cur = None
+
+        def json(self, prompt, **k):
+            if prompt.startswith("Tu es le monteur"):
+                a, b, sc = next(picks)
+                AI.cur = sc
+                return {"choices": [{"n": 0, "video": "vid1", "start": a, "end": b}]}
+            return {"checks": [{"n": 0, "ok": False, "score": AI.cur}]}
+    res = choose(AI(), occ, words, vids, "fr", 25)
+    assert len(res) == 1 and 19 <= res[0]["a"] <= 21          # le passage noté 7/10

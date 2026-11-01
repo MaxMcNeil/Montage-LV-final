@@ -25,7 +25,7 @@ from .finder import load_lot, social_clips
 from .finder import match as finder_match
 from .media import face_center
 from .panels import open_image, render_panel
-from .plan import ask
+from .plan import ask, video_lines
 from .render import Ctx, build_audio, extract_main_audio, mux, render_video
 from .timeline import keep_ranges, out_time, schedule
 from .transcribe import sentences, transcribe
@@ -1189,7 +1189,7 @@ def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str, la
     pick = None
     if ai and ai.ok and any(x.get("sentences") for x in vids):
         txt = "\n".join(f'- id "{x["id"]}" « {x["name"]} » ({x["duration"]:.0f} s) : ' +
-                        " / ".join(f'[{s["t0"]:.1f}-{s["t1"]:.1f}s] {s["text"]}' for s in (x.get("sentences") or [])[:120])
+                        video_lines(x.get("sentences") or [], budget=max(2500, 16000 // max(1, len(vids))))
                         for x in vids)
         j = ai.json(OPENER_PROMPT.format(lang=lang, hook=hook or "(voir les vidéos)", videos=txt))
         if isinstance(j, dict):

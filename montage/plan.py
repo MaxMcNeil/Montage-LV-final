@@ -81,6 +81,25 @@ Décide :
 Réponds en JSON : {{"hook", "title", "description", "chapters", "visuals", "inserts", "press", "emphasis", "outro"}}."""
 
 
+def video_lines(sents: list, budget: int = 7000) -> str:
+    """Transcription horodatée d'une vidéo jointe, du DÉBUT À LA FIN : complète si elle tient dans `budget` caractères,
+    sinon phrases regroupées par blocs (chaque bloc garde ses bornes exactes) — jamais la fin coupée."""
+    if not sents:
+        return ""
+    items = [f'[{s["t0"]:.0f}-{s["t1"]:.0f}s] {s["text"]}' for s in sents]
+    if sum(len(x) + 3 for x in items) <= budget:
+        return " / ".join(items)
+    total = sum(len(s["text"]) + 1 for s in sents)
+    m = max(2, -(-total // max(1, budget - 12 * len(sents) // 2)))   # phrases par bloc
+    out = []
+    per = max(60, budget // max(1, -(-len(sents) // m)) - 14)
+    for k in range(0, len(sents), m):
+        g = sents[k:k + m]
+        txt = " ".join(x["text"] for x in g)
+        out.append(f'[{g[0]["t0"]:.0f}-{g[-1]["t1"]:.0f}s] {txt[:per]}{"…" if len(txt) > per else ""}')
+    return " / ".join(out)
+
+
 def describe_attachments(att: list) -> str:
     if not att:
         return "(aucune)"
@@ -90,7 +109,7 @@ def describe_attachments(att: list) -> str:
             lines.append(f'- id "{a["id"]}" — IMAGE « {a["name"]} » : {a.get("description") or "(non décrite)"}')
         else:
             sents = a.get("sentences") or []
-            body = " / ".join(f'[{s["t0"]:.0f}-{s["t1"]:.0f}s] {s["text"]}' for s in sents[:60])
+            body = video_lines(sents, budget=max(2500, 16000 // max(1, sum(x["kind"] == "video" for x in att))))
             cut = (f' | PASSAGE IMPOSÉ PAR L\'AUTEUR : {a["cut"][0]:.0f}-{a["cut"][1]:.0f} s (garde ces bornes)'
                    if a.get("cut") else "")
             lines.append(f'- id "{a["id"]}" — VIDÉO « {a["name"]} » ({a.get("duration", 0):.0f} s) : '
