@@ -240,6 +240,14 @@ jobs:
           python3 scripts/fetch_inputs.py
           ls -la input input/attachments
 
+      - name: État de la release → ⏳ EN COURS (lancement à la main avec un tag)
+        # chaîne (repository_dispatch) et lancements sans release : non concernés
+        if: github.event_name == 'workflow_dispatch' && steps.fetch.outputs.tag != '' && steps.fetch.outputs.skip != '1'
+        env:
+          SRC_TAG: ${{ steps.fetch.outputs.tag }}
+        run: |
+          bash scripts/release-status.sh "$SRC_TAG" run "montage lancé — [suivre le travail](https://github.com/$REPO/actions/runs/${{ github.run_id }})"
+
       - name: Montage (transcription, plan, médias, rendu)
         if: steps.fetch.outputs.skip != '1'
         env:

@@ -13,6 +13,10 @@ extraits vidéo arrivent **au moment exact où tu en parles**. Tout est gratuit 
 
 *Releases → Draft a new release → Choose a tag* : tape `montage-001` (puis `montage-002`…) → *Create new tag*.
 Joins **ta vidéo** + tes **photos / vidéos** (glisser ou « Attach binaries ») → *Publish release*.
+Puis **lance** : *Actions → Montage → Run workflow* → champ `source` = ton tag (ex. `montage-001`).
+**Rien ne se lance tout seul** quand tu déposes une vidéo ou une photo (seule exception : la chaîne fond vert → montage).
+Une release de photos sans fichier « moi… » reste une réserve de pièces jointes : elle est ajoutée au prochain montage
+(dans les 3 jours), ou tout de suite si tu écris son tag dans `pieces_jointes`.
 
 - **Ta vidéo = le fichier dont le nom commence par « moi »** (`moi.mp4`, `Moi_interview.mov`…), qu'il soit joint à la
   release ou sur Google Drive. Sans fichier « moi… » : la plus grosse vidéo jointe. Tout le reste = pièces jointes à placer.
