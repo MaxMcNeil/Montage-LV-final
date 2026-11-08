@@ -7,9 +7,9 @@ name: Montage final
 # 📌 RÉFLEXE : titre du résultat / 1re ligne de PLAN.md → « ✅ prêt à publier » = publie ; « ⚠ à vérifier » = PLAN.md
 #    dit quoi et à quel moment : regarde ce passage avant de publier.
 
+# LANCEMENT MANUEL UNIQUEMENT (Actions → Run workflow) : déposer une vidéo ou une photo ne déclenche plus rien.
+# Seule exception : la chaîne lancée par le dépôt fond vert (repository_dispatch « chaine-montage » ci-dessous).
 on:
-  release:
-    types: [published]
   # 🔗 CHAÎNE : lancé automatiquement par le dépôt fond vert (case « enchainer »), jamais par un cron
   repository_dispatch:
     types: [chaine-montage]
