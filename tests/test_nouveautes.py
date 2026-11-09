@@ -206,7 +206,7 @@ def test_claim_searches_statuses(tmp_path, monkeypatch):
     import montage.__main__ as M
     calls = []
 
-    def fake_search(p, lang, work, minutes=9, quota_file=None):
+    def fake_search(p, lang, work, minutes=9, quota_file=None, light=False):
         calls.append(p["target"])
         if p["target"] == "boom":
             return {"clips": [], "articles": [], "posts": [], "error": "IA indisponible pour préparer la recherche"}

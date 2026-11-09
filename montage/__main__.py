@@ -76,16 +76,16 @@ def options(path: str | None) -> dict:
         if o.get("sous_titres") != "non":
             log.info("Chaîne : sous-titres de la vidéo montée forcés à « non » (verrou)")
         o["sous_titres"] = "non"
-    # 🔒 VERROU RECHERCHE : tu fournis toi-même articles, vidéos et photos (Releases / montage-joints). Gemini ne sert
-    # plus JAMAIS à chercher (presse, lot Finder, Telegram, Reddit, ouverture par une vidéo trouvée) :
-    # une seule clé Gemini suffit pour le reste (plan, chapitres, placement de TES pièces jointes, Shorts).
-    # Seul moyen de réactiver : variable de dépôt MONTAGE_RECHERCHE_AUTORISEE = oui.
+    # 🔒 RECHERCHE LÉGÈRE (une seule clé Gemini) : presse / vidéos / Telegram / Reddit oui, mais économe — au plus
+    # 4 affirmations, aucune vidéo regardée ni article lu par Gemini, plafond de demandes à l'IA par recherche.
+    # Le lot Finder n'est plus repris. Recherche complète (ancienne) : variable de dépôt MONTAGE_RECHERCHE_AUTORISEE = oui.
     if (os.environ.get("MONTAGE_RECHERCHE_AUTORISEE") or "").strip().lower() != "oui":
-        if o.get("recherche_presse") != "non" or o.get("finder") != "non":
-            log.info("Recherche automatique désactivée (verrou) : seulement tes articles et vidéos (+ photos Wikimedia)")
-        # les photos libres Wikimedia restent permises : elles passent par Wikipédia, jamais par Gemini
-        o["recherche_presse"], o["finder"] = "non", "non"
-        o["_sans_recherche"] = True
+        o["finder"] = "non"
+        if o.get("recherche_presse") != "non":
+            o["_recherche_legere"] = True
+            log.info("Recherche légère : au plus %d affirmations, %d demandes IA max chacune", C.LIGHT_CLAIMS, C.LIGHT_BUDGET)
+        else:
+            o["_sans_recherche"] = True
     return o
 
 
@@ -362,7 +362,9 @@ def main(argv=None) -> int:
     press_info = None
     if opts["recherche_presse"] != "non" and plan["press"]:
         press_info = claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir,
-                                    len(plan["press"]), len(sents), info["duration"])
+                                    min(len(plan["press"]), C.LIGHT_CLAIMS) if opts.get("_recherche_legere")
+                                    else len(plan["press"]), len(sents), info["duration"],
+                                    light=bool(opts.get("_recherche_legere")))
         spare_articles += press_info.get("spare") or []
         pool_clips += press_info.get("clips_pool") or []
         ai.save_quota()
@@ -679,7 +681,7 @@ def _search_detail(res: dict, soc_clips: list) -> str:
 
 
 def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_ins, pw, ph, pdir, n_max: int,
-                   n_sents: int = 10 ** 6, src_dur: float = 0.0) -> dict:
+                   n_sents: int = 10 ** 6, src_dur: float = 0.0, light: bool = False) -> dict:
     """Une recherche Vid-o-presse-finder par affirmation (2 à la fois, budget total borné). Jamais bloquant :
     chaque affirmation finit avec un statut lisible (trouvé, rien, déjà couvert, temps écoulé, erreur)."""
     from concurrent.futures import ThreadPoolExecutor
@@ -733,7 +735,8 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
             qfiles.append(qf)
         except OSError:
             qf = None
-        return it, press_search(it["p"], lang, work, minutes=max(6.0, min(12.0, left - 3)), quota_file=qf)
+        return it, press_search(it["p"], lang, work, minutes=max(6.0, min(8.0 if light else 12.0, left - 3)),
+                                quota_file=qf, light=light)
     with ThreadPoolExecutor(max_workers=3) as ex:
         for it, res in ex.map(go, enumerate(todo)):
             results[id(it)] = res
@@ -1347,9 +1350,12 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             if a_ is not None and b_ is not None and b_ > a_:
                 L.append(f"  - ⚠ entre {tc(a_)} et {tc(b_)} : pas d'extrait — " + " ; ".join(h["why"][:3]))
     if opts.get("_sans_recherche"):
-        L.append("- 🔒 Recherche automatique désactivée (presse, Finder, Telegram, Reddit) : TES articles, vidéos et photos "
-                 "sont montés, plus des photos libres Wikimedia des personnes / lieux cités (après les tiennes, sans "
-                 "Gemini) ; Gemini ne sert qu'au plan, aux chapitres et au placement.")
+        L.append("- 🔒 Recherche automatique désactivée : TES articles, vidéos et photos sont montés, plus des photos libres "
+                 "Wikimedia des personnes / lieux cités (après les tiennes, sans Gemini).")
+    elif opts.get("_recherche_legere"):
+        L.append(f"- 🔎 Recherche légère (économe pour ta clé Gemini) : au plus {C.LIGHT_CLAIMS} affirmations, "
+                 f"{C.LIGHT_BUDGET} demandes IA max chacune, aucune vidéo regardée ni article lu par Gemini (sous-titres et "
+                 "titres seulement) — tes fichiers passent toujours en premier.")
     if lot_info:
         age = f", il y a {lot_info['age']} jour(s)" if lot_info.get("age") is not None else ""
         if lot_info.get("origine"):

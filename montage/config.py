@@ -146,3 +146,8 @@ DEFAULTS = {
     "mise_en_scene": "oui",         # oui : plans (zooms) choisis selon ta voix (ton qui monte = plan serré) et ton débit
     "voix_studio": "non",           # oui : ta voix traitée façon studio (clarté, débruitage doux, volume régulier)
 }
+
+
+# recherche légère (une seule clé Gemini) : affirmations cherchées au plus, demandes à l'IA au plus par recherche
+LIGHT_CLAIMS = 4
+LIGHT_BUDGET = 8

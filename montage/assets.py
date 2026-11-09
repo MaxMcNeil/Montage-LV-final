@@ -208,7 +208,8 @@ def wiki_image(query: str, langs: list[str], dest: Path) -> dict | None:
 
 
 # ------------------------------------------------------------------ Vid-o-presse-finder
-def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_file: Path | None = None) -> dict:
+def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_file: Path | None = None,
+                 light: bool = False) -> dict:
     """Lance une recherche Vid-o-presse-finder (processus séparé, limité dans le temps). Retourne clips + articles.
     quota_file : copie privée de l'état des quotas (recherches en parallèle), refusionnée ensuite."""
     out = work / "press"
@@ -220,7 +221,8 @@ def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_fil
            "--speakers", "auto",
            # soupçons / rumeurs : toutes les voix
            "--authority", "moyenne" if p.get("type") == "personne" else "toutes",
-           "--max-videos", "8", "--max-articles", "10",
+           "--max-videos", "4" if light else "8", "--max-articles", "6" if light else "10",
+           *(["--light"] if light else []),
            "--langs", langs, "--max-minutes", str(minutes), "--out", str(out), "--batch-id", "lot", "--search-id", sid]
     log.info("Recherche presse : %s | %s", p["target"], p.get("claim", ""))
     res = {"clips": [], "articles": [], "posts": [], "error": "", "social": {}}
@@ -228,6 +230,9 @@ def press_search(p: dict, lang: str, work: Path, minutes: float = 9.0, quota_fil
         env = dict(os.environ)
         if quota_file:
             env["QF_QUOTA_FILE"] = str(quota_file)
+        if light:   # plafond de demandes à l'IA pour CETTE recherche (recherche légère)
+            from .config import LIGHT_BUDGET
+            env["QF_LLM_BUDGET"] = str(LIGHT_BUDGET)
         r = subprocess.run(cmd, timeout=minutes * 60 + 240, capture_output=True, text=True, env=env)
         if r.returncode not in (0,):
             tail = [x for x in (r.stderr or "").strip().splitlines() if x.strip()][-3:]

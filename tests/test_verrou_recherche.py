@@ -1,18 +1,29 @@
-"""Verrou : aucune recherche automatique (Gemini réservé au plan / placement de TES pièces jointes)."""
+"""Recherche légère par défaut (une seule clé Gemini) ; « non » la coupe ; la complète seulement par variable de dépôt."""
 import json
 
 import montage.__main__ as M
+from montage import config as C
 
 
-def test_search_always_off_whatever_asked(monkeypatch, tmp_path):
+def test_light_search_by_default(monkeypatch, tmp_path):
+    monkeypatch.delenv("MONTAGE_RECHERCHE_AUTORISEE", raising=False)
+    for k in ("MONTAGE_RECHERCHE_PRESSE", "MONTAGE_FINDER"):
+        monkeypatch.delenv(k, raising=False)
+    o = M.options(None)
+    assert o["recherche_presse"] == "oui" and o.get("_recherche_legere") and not o.get("_sans_recherche")
+    assert o["finder"] == "non" and o["images_web"] == "oui"
+    assert C.LIGHT_CLAIMS <= 4 and C.LIGHT_BUDGET <= 10
+
+
+def test_non_turns_search_off(monkeypatch, tmp_path):
     monkeypatch.delenv("MONTAGE_RECHERCHE_AUTORISEE", raising=False)
     f = tmp_path / "o.json"
-    f.write_text(json.dumps({"recherche_presse": "oui", "finder": "dernier", "images_web": "oui"}), encoding="utf-8")
-    monkeypatch.setenv("MONTAGE_RECHERCHE_PRESSE", "oui")
-    monkeypatch.setenv("MONTAGE_FINDER", "oui")
+    f.write_text(json.dumps({"recherche_presse": "non", "finder": "dernier"}), encoding="utf-8")
     o = M.options(str(f))
-    assert (o["recherche_presse"], o["finder"]) == ("non", "non") and o["_sans_recherche"]
-    assert o["images_web"] == "oui"                                   # Wikimedia : sans Gemini, gardé
-    assert M.options(None)["finder"] == "non"                         # défaut aussi
-    monkeypatch.setenv("MONTAGE_RECHERCHE_AUTORISEE", "oui")          # seul moyen de réactiver
-    assert M.options(str(f))["recherche_presse"] == "oui"
+    assert o["recherche_presse"] == "non" and o.get("_sans_recherche") and o["finder"] == "non"
+
+
+def test_full_search_only_with_repo_variable(monkeypatch):
+    monkeypatch.setenv("MONTAGE_RECHERCHE_AUTORISEE", "oui")
+    o = M.options(None)
+    assert not o.get("_recherche_legere") and not o.get("_sans_recherche")
