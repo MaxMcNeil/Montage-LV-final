@@ -205,7 +205,7 @@ aucun. Pour garder tes longs silences : `silences_longs: non` (description de la
 
 ## 📂 Google Drive (comme le dépôt fond vert)
 
-- **📥 Récupérer médias** (*Actions* → *Run workflow*, à la main) : lit une liste `medias/<live>.txt`
+- **📥 Préparer les médias — avant le Montage** (*Actions* → *Run workflow*, à la main) : lit une liste `medias/<live>.txt`
   (vidéos par recherche YouTube via yt-dlp, photos libres Wikipedia, captures d'articles) et dépose tout dans
   `montage-joints`. **Aucune clé API utilisée.** Les sources vont dans Drive `sources-medias` (jamais dans montage-joints).
 - **Ta vidéo** peut être donnée par son chemin Drive dans le champ *source* : `gdrive:resultats/moi-ma-video.mp4`
@@ -284,11 +284,11 @@ montage/config.py               couleurs, géométrie, polices, textes par langu
 
 Tests : `pip install pytest && PYTHONPATH=. python -m pytest -q`
 
-## 📥 Récupérer médias depuis ton script (automatique)
+## 📥 Préparer les médias — avant le Montage (depuis ton script, automatique)
 1. Dépose ton script de live dans le dossier Drive **montage-joints**, nommé **script.txt** (.md, .docx ou .pdf acceptés : change alors le champ « script »).
-2. Actions → **📥 Récupérer médias** → Run (rien à remplir) : la liste des médias est écrite toute seule (1 demande à l'IA), puis vidéos, photos libres et captures d'articles arrivent dans montage-joints. Ton script est ensuite rangé dans Drive « sources-medias/scripts ».
+2. Actions → **📥 Préparer les médias — avant le Montage** → Run (rien à remplir) : la liste des médias est écrite toute seule (1 demande à l'IA), puis vidéos, photos libres et captures d'articles arrivent dans montage-joints. Ton script est ensuite rangé dans Drive « sources-medias/scripts ».
 3. Vidéos refusées par YouTube à GitHub : sur ton téléphone (Termux) —
    `curl -fsSL https://raw.githubusercontent.com/MaxMcNeil/Montage-LV-final/main/scripts/tel_videos.sh -o ~/tel_videos.sh && bash ~/tel_videos.sh`
    (une seule fois avant : `pkg install -y python ffmpeg rclone jq && pip install -U yt-dlp`, et rclone sur le même compte Google).
-4. Lance **Montage LV final** avec **recherche_presse = non** (tes médias sont déjà là).
+4. Lance **Montage LV final** avec **recherche_presse = non** (tes médias sont déjà là) — tu peux le lancer tout de suite : il attend que la préparation soit finie.
 Pas de script sur Drive : le workflow prend la liste du dépôt (dossier medias/), comme avant.

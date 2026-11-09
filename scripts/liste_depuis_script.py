@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ton script de live → liste de médias pour « Récupérer médias » (même format que medias/*.txt).
+"""Ton script de live → liste de médias pour « Préparer les médias » (même format que medias/*.txt).
 
   python3 scripts/liste_depuis_script.py <script.txt|.md|.docx|.pdf> <liste_sortie.txt>
 

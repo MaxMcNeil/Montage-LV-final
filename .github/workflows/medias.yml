@@ -1,4 +1,4 @@
-name: 📥 Récupérer médias (live → montage-joints)
+name: 📥 Préparer les médias — avant le Montage
 
 # Lancé UNIQUEMENT à la main (aucun cron).
 # 1) Ton script est dans le dossier Drive (champ « script », par défaut montage-joints/script.txt) : la liste des

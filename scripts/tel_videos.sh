@@ -1,5 +1,5 @@
 #!/data/data/com.termux/files/usr/bin/bash
-# 📱 Sur ton téléphone (Termux) : télécharge les vidéos que YouTube a refusées à GitHub (« Récupérer médias ») et
+# 📱 Sur ton téléphone (Termux) : télécharge les vidéos que YouTube a refusées à GitHub (« Préparer les médias ») et
 #    les dépose dans le dossier Drive montage-joints. Ton téléphone n'est pas bloqué par YouTube.
 #
 #   Une seule fois :  pkg install -y python ffmpeg rclone jq && pip install -U yt-dlp
