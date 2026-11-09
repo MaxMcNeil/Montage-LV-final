@@ -289,7 +289,9 @@ Tests : `pip install pytest && PYTHONPATH=. python -m pytest -q`
 2. Actions → **📥 Préparer les médias — avant le Montage** → Run (rien à remplir) : la liste des médias est écrite toute seule (1 demande à l'IA), puis vidéos, photos libres et captures d'articles arrivent dans montage-joints. Ton script est ensuite rangé dans Drive « sources-medias/scripts ».
 3. Vidéos : tout est automatique — YouTube (jeton PO, tes cookies YT_COOKIES, ton proxy, plusieurs façons de se
    présenter), puis relais Invidious, puis la même recherche sur Dailymotion et archive.org. Ce qui reste introuvable
-   partout est laissé de côté (le montage se fait sans). Facultatif seulement : ton téléphone peut les récupérer
-   (`curl -fsSL https://raw.githubusercontent.com/MaxMcNeil/Montage-LV-final/main/scripts/tel_videos.sh -o ~/tel_videos.sh && bash ~/tel_videos.sh`).
+   partout passe par ton téléphone : avant de lancer « Préparer les médias », ouvre Termux et tape
+   `bash ~/tel_videos.sh veille` (laisse Termux ouvert : il récupère les vidéos bloquées tout seul, et le Montage
+   l'attend 20 min max). Première fois : `curl -fsSL https://raw.githubusercontent.com/MaxMcNeil/Montage-LV-final/main/scripts/tel_videos.sh -o ~/tel_videos.sh`.
+   Si le téléphone n'écoute pas, les journaux du run t'écrivent la commande à taper (« 📱 ACTION SUR TON TÉLÉPHONE »).
 4. Lance **Montage LV final** avec **recherche_presse = non** (tes médias sont déjà là) — tu peux le lancer tout de suite : il attend que la préparation soit finie.
 Pas de script sur Drive : le workflow prend la liste du dépôt (dossier medias/), comme avant.

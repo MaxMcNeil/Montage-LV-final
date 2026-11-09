@@ -5,8 +5,9 @@ name: 📥 Préparer les médias — avant le Montage
 #    médias est écrite AUTOMATIQUEMENT (1 seule demande à l'IA : Gemini, sinon Groq), puis les médias sont récupérés.
 # 2) Pas de script sur Drive : liste du dépôt (champ « liste », ou la plus récente du dossier medias/) — sans aucune clé.
 # Dépose vidéos, photos libres et captures d'articles dans le dossier Drive montage-joints, prêts pour le Montage.
-# Vidéos : YouTube (jeton PO, tes cookies, ton proxy, plusieurs clients), relais Invidious, puis Dailymotion et
-# archive.org — tout automatique. Ce qui reste introuvable partout est simplement laissé de côté (montage sans).
+# Vidéos : YouTube (Cloudflare WARP, jeton PO, tes cookies/proxy si présents, plusieurs clients), relais Invidious,
+# Dailymotion, archive.org ; ce qui reste bloqué → ton téléphone (Termux « bash ~/tel_videos.sh veille »), attendu par
+# le Montage 20 min max. Sinon simplement laissé de côté (montage sans).
 on:
   workflow_dispatch:
     inputs:
@@ -68,6 +69,30 @@ jobs:
             pip uninstall -y -q bgutil-ytdlp-pot-provider >/dev/null 2>&1 || true
             echo "::notice::jeton PO indisponible ce lancement : les autres contournements restent utilisés"
           fi
+
+      # Autre adresse internet pour YouTube, sans proxy ni cookies : Cloudflare WARP (gratuit, sans compte), en mode
+      # « proxy local » : seul yt-dlp passe par là (Google Drive et GitHub restent en direct). Jamais bloquant.
+      - name: Changer d'adresse internet pour YouTube (Cloudflare WARP) — automatique, jamais bloquant
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          set -o pipefail
+          K=/usr/share/keyrings/cloudflare-warp-archive-keyring.gpg
+          curl -fsSL --retry 3 https://pkg.cloudflareclient.com/pubkey.gpg | sudo gpg --yes --dearmor --output "$K"
+          echo "deb [signed-by=$K] https://pkg.cloudflareclient.com/ $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/cloudflare-client.list >/dev/null
+          sudo timeout 120 apt-get update -qq -o Dir::Etc::sourcelist=/etc/apt/sources.list.d/cloudflare-client.list -o Dir::Etc::sourceparts=- || true
+          sudo timeout 180 apt-get install -y -qq --no-install-recommends cloudflare-warp
+          for i in 1 2 3 4 5; do warp-cli --accept-tos status >/dev/null 2>&1 && break; sleep 3; done
+          warp-cli --accept-tos registration new >/dev/null 2>&1 || warp-cli --accept-tos register >/dev/null 2>&1 || true
+          warp-cli --accept-tos mode proxy >/dev/null 2>&1 || warp-cli --accept-tos set-mode proxy >/dev/null 2>&1 || true
+          warp-cli --accept-tos connect >/dev/null 2>&1 || true
+          for i in $(seq 1 15); do
+            if curl -s --max-time 10 -x socks5h://127.0.0.1:40000 https://www.cloudflare.com/cdn-cgi/trace | grep -q '^warp=on'; then
+              echo "WARP_PROXY=socks5://127.0.0.1:40000" >> "$GITHUB_ENV"; echo "Cloudflare WARP : prêt (YouTube voit une autre adresse)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "::notice::Cloudflare WARP indisponible ce lancement : les autres contournements restent utilisés"
 
       - name: Ton script → liste des médias (1 demande à l'IA)
         id: auto

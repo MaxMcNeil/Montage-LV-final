@@ -76,7 +76,8 @@ invidious() { # sortie id_youtube
 
 video() { # nom url-ou-recherche durée_max
   local f="$OUT/$1.mp4" q="$2" d="${3:-900}" px=() ck=() urls=() u via="" id v
-  [ -n "${YT_PROXY_URL:-}" ] && px=(--proxy "$YT_PROXY_URL")
+  # adresse internet : ton proxy s'il existe, sinon Cloudflare WARP (préparé par le workflow), sinon directe
+  if [ -n "${YT_PROXY_URL:-}" ]; then px=(--proxy "$YT_PROXY_URL"); elif [ -n "${WARP_PROXY:-}" ]; then px=(--proxy "$WARP_PROXY"); fi
   [ -s "${YT_COOKIES_FILE:-}" ] && ck=(--cookies "$YT_COOKIES_FILE")
   if [[ "$q" == http* ]]; then urls=("$q")
   else   # la recherche YouTube marche depuis GitHub (seul le téléchargement est parfois refusé)
@@ -88,6 +89,8 @@ video() { # nom url-ou-recherche durée_max
       if [ -n "$v" ]; then ytdl "$f" "$u" "$d" "${px[@]}" "${ck[@]}" --extractor-args "$v" && { via="$u"; break 2; }
       else ytdl "$f" "$u" "$d" "${px[@]}" "${ck[@]}" && { via="$u"; break 2; }; fi
     done
+    [ -n "${YT_PROXY_URL:-}" ] && [ -n "${WARP_PROXY:-}" ] && ytdl "$f" "$u" "$d" --proxy "$WARP_PROXY" "${ck[@]}" \
+      --extractor-args "youtube:player_client=tv" && { via="$u (via Cloudflare WARP)"; break; }
     [ ${#px[@]} -gt 0 ] && ytdl "$f" "$u" "$d" "${ck[@]}" && { via="$u"; break; }
     id=$(echo "$u" | sed -nE 's#.*(v=|youtu\.be/|shorts/)([A-Za-z0-9_-]{11}).*#\2#p')
     [ -n "$id" ] && invidious "$f" "$id" && { via="$u (via relais Invidious)"; break; }
@@ -137,8 +140,21 @@ if [ "$N" -gt 0 ]; then
     || { echo "::error::copie vers Google Drive ($DEST) échouée"; exit 1; }
   rclone copy sources.tsv "$REMOTE:sources-medias" -q 2>/dev/null || true   # HORS montage-joints
 fi
-# vidéos refusées à GitHub : liste pour ton téléphone (Termux : bash tel_videos.sh) — remplacée à chaque lancement
+# vidéos refusées à GitHub : liste + demande pour ton téléphone (Termux : bash ~/tel_videos.sh veille)
+# remplacées à chaque lancement ; le Montage attend que le téléphone ait fini (20 min max)
 rclone copyto a-telecharger.txt "$REMOTE:sources-medias/a-telecharger.txt" -q 2>/dev/null || true
+echo "${GITHUB_RUN_ID:-local} $(date +%s) $DOSSIER" > telephone-demande.txt
+rclone copyto telephone-demande.txt "$REMOTE:sources-medias/telephone-demande.txt" -q 2>/dev/null || true
+TEL=""   # le téléphone écoute-t-il ? (« je suis là » de moins de 6 min)
+if [ -s a-telecharger.txt ]; then
+  vu=$(rclone cat "$REMOTE:sources-medias/telephone-veille.txt" 2>/dev/null | head -1 | tr -dc 0-9)
+  if [ -n "$vu" ] && [ $(( $(date +%s) - vu )) -lt 360 ]; then TEL=ecoute; fi
+  if [ "$TEL" = ecoute ]; then
+    echo "::notice title=📱 Téléphone::$(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) : ton téléphone (Termux en veille) s'en occupe tout seul. Rien à faire."
+  else
+    echo "::warning title=📱 ACTION SUR TON TÉLÉPHONE::$(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) par YouTube. Ouvre Termux et tape :  bash ~/tel_videos.sh veille   (le Montage t'attend 20 min)"
+  fi
+fi
 
 {
   echo "## 📥 Médias du live → Drive « $DOSSIER »"
@@ -147,8 +163,15 @@ rclone copyto a-telecharger.txt "$REMOTE:sources-medias/a-telecharger.txt" -q 2>
   awk -F'\t' '{printf "| %s | %s | %s |\n",$1,$2,$3}' sources.tsv
   if [ -s echecs.txt ]; then echo; echo "### ⚠ À compléter"; sed 's/^/- /' echecs.txt; fi
   if [ -s a-telecharger.txt ]; then
-    echo; echo "ℹ️ $(wc -l < a-telecharger.txt) vidéo(s) introuvable(s) partout : le montage se fait sans elles"
-    echo "(facultatif : ton téléphone peut les récupérer avec \`bash tel_videos.sh\`)."
+    echo; echo "### 📱 $(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) par YouTube"
+    if [ "$TEL" = ecoute ]; then
+      echo "✅ **Rien à faire** : ton téléphone (Termux en veille) les récupère tout seul, et le Montage l'attend."
+    else
+      echo "👉 **Ouvre Termux sur ton téléphone et tape :**"; echo; echo '```'; echo 'bash ~/tel_videos.sh veille'; echo '```'
+      echo "Le Montage t'attend **20 min** ; sinon il se fait sans ces vidéos."
+      echo; echo "Si Termux répond « No such file » (première fois), tape d'abord :"; echo
+      echo '```'; echo 'curl -fsSL https://raw.githubusercontent.com/MaxMcNeil/Montage-LV-final/main/scripts/tel_videos.sh -o ~/tel_videos.sh'; echo '```'
+    fi
   fi
   echo; echo "Liste des sources aussi copiée dans Drive « sources-medias » (jamais dans montage-joints)."
 } >> "$SUM"
