@@ -40,9 +40,31 @@ class Ctx:
         self.ass = ass_path
         self.fonts = fonts
         self.sw, self.sh = info["w"], info["h"]
+        # vidéo VERTICALE montée en HORIZONTAL (format forcé) : toi en entier au centre, sur ton fond flouté teinté
+        # (jamais de gros plan recadré et flou sur la tête)
+        self.pillar = orient == "h" and self.sh > self.sw * 1.05
+        self._n = 0
+
+    def _pillar_geom(self, z: float = 1.0) -> tuple[int, int, int]:
+        """Taille (largeur, hauteur) de ta vidéo au centre et son décalage x, pour le mode « vertical en horizontal »."""
+        fh = _even(self.H * z)
+        fw = _even(self.sw * fh / self.sh)
+        return fw, fh, (self.W - fw) // 2
 
     def full_chain(self, z: float = 1.0) -> str:
         W, H = self.W, self.H
+        if self.pillar:
+            self._n += 1
+            n = self._n
+            fw, fh, x0 = self._pillar_geom(z)
+            y = int(clamp(self.face["cy"] * fh - H * 0.42, 0, fh - H))
+            bw, bh = W // 8, H // 8
+            return (f"split[pa{n}][pb{n}];"
+                    f"[pa{n}]scale={bw}:{bh}:force_original_aspect_ratio=increase,crop={bw}:{bh},boxblur=4:2,"
+                    f"scale={W}:{H},eq=brightness=-0.08:saturation=0.45,colorchannelmixer=rr=0.82:gg=0.88:bb=1.0,"
+                    f"setsar=1[pg{n}];"
+                    f"[pb{n}]scale={fw}:{fh}:flags=bicubic,crop={fw}:{H}:0:{y},setsar=1[pf{n}];"
+                    f"[pg{n}][pf{n}]overlay=x={x0}:y=0")
         s = max(W / self.sw, H / self.sh) * z
         SW, SH = _even(self.sw * s), _even(self.sh * s)
         x = int(clamp(self.face["cx"] * SW - W / 2, 0, SW - W))
@@ -52,19 +74,25 @@ class Ctx:
     def card_crop(self, cw: int, ch: int) -> str:
         """Recadrage (dans l'image plein cadre) pour le cadre arrondi : visage centré, proportions du cadre."""
         W, H = self.W, self.H
-        s = max(W / self.sw, H / self.sh)
-        SW, SH = _even(self.sw * s), _even(self.sh * s)
-        x1 = clamp(self.face["cx"] * SW - W / 2, 0, SW - W)
-        y1 = clamp(self.face["cy"] * SH - H * 0.42, 0, SH - H)
-        fx, fy = self.face["cx"] * SW - x1, self.face["cy"] * SH - y1
+        lo, span = 0.0, float(W)          # zone de l'image où se trouve ta vidéo
+        if self.pillar:                   # vertical en horizontal : le cadre ne prend que ta vidéo (pas le fond flou)
+            fw, _, x0 = self._pillar_geom(1.0)
+            fx, fy = x0 + self.face["cx"] * fw, self.face["cy"] * H
+            lo, span = float(x0), float(fw)
+        else:
+            s = max(W / self.sw, H / self.sh)
+            SW, SH = _even(self.sw * s), _even(self.sh * s)
+            x1 = clamp(self.face["cx"] * SW - W / 2, 0, SW - W)
+            y1 = clamp(self.face["cy"] * SH - H * 0.42, 0, SH - H)
+            fx, fy = self.face["cx"] * SW - x1, self.face["cy"] * SH - y1
         r = cw / ch
         hh = H * 0.97
         ww = hh * r
-        if ww > W * 0.98:
-            ww = W * 0.98
+        if ww > span * 0.98:
+            ww = span * 0.98
             hh = ww / r
         ww, hh = int(ww) // 2 * 2, int(hh) // 2 * 2
-        x = int(clamp(fx - ww / 2, 0, W - ww))
+        x = int(clamp(fx - ww / 2, lo, lo + span - ww))
         y = int(clamp(fy - hh * 0.40, 0, H - hh))
         return f"crop={ww}:{hh}:{x}:{y},scale={cw}:{ch}:flags=bicubic,setsar=1"
 

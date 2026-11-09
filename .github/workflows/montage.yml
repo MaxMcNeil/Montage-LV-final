@@ -67,6 +67,11 @@ on:
         type: choice
         options: [oui, non]
         default: oui
+      format_sortie:
+        description: "🖼 Format de la vidéo montée : auto = même format que ta vidéo · horizontal ou vertical = forcé (mêmes cartes, animations et inserts)"
+        type: choice
+        options: [auto, horizontal, vertical]
+        default: auto
       version_verticale:
         description: "📱 Vidéo HORIZONTALE : faire aussi une version verticale (pour les Shorts, rien de coupé). auto = seulement si les Shorts sont enchaînés"
         type: choice
@@ -328,6 +333,7 @@ jobs:
           MONTAGE_CHAINE: ${{ inputs.chaine }}
           MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio || github.event.client_payload.voix_studio }}
           MONTAGE_VERSION_VERTICALE: ${{ inputs.version_verticale || 'auto' }}
+          MONTAGE_FORMAT: ${{ inputs.format_sortie || github.event.client_payload.format_sortie || 'auto' }}
           MONTAGE_RECHERCHE_PRESSE: ${{ inputs.recherche_presse }}
         run: |
           mkdir -p fonts state

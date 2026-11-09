@@ -59,6 +59,10 @@ def options(path: str | None) -> dict:
     m = re.search(r"\d+", o.get("affirmations") or "")
     o["affirmations"] = "0" if (o.get("affirmations") or "") in no else str(min(30, int(m.group(0)))) if m else "auto"
     o["chaine"] = (o.get("chaine") or "auto").strip() or "auto"
+    fm = (o.get("format") or "auto").strip().lower()
+    o["format"] = ("h" if fm in ("h", "horizontal", "horizontale", "paysage", "16:9", "16/9", "orizzontale", "landscape", "أفقي")
+                   else "v" if fm in ("v", "vertical", "verticale", "portrait", "9:16", "9/16", "short", "shorts", "عمودي")
+                   else "auto")
     m = re.search(r"\d+", o.get("max_inserts") or "")
     o["max_inserts"] = m.group(0) if m else "auto"          # auto = dimensionné selon la durée de ta vidéo
     for k in ("duree_max_insert",):
@@ -110,8 +114,13 @@ def main(argv=None) -> int:
     info = probe(src)
     if not info["video"] or info["duration"] < 1:
         raise SystemExit("La vidéo déposée est illisible.")
-    orient = "v" if info["h"] > info["w"] * 1.05 else "h"
-    log.info("Vidéo : %dx%d, %.0f s, %s", info["w"], info["h"], info["duration"], "verticale" if orient == "v" else "horizontale")
+    orient_in = "v" if info["h"] > info["w"] * 1.05 else "h"
+    # format de sortie : auto = identique à ta vidéo ; horizontal / vertical = forcé (cartes, animations, inserts : les
+    # mêmes, simplement dans le format choisi). Vertical → horizontal : toi au centre, sur ton fond flouté sobre.
+    orient = opts["format"] if opts.get("format") in ("h", "v") else orient_in
+    log.info("Vidéo : %dx%d, %.0f s, %s → montage %s%s", info["w"], info["h"], info["duration"],
+             "verticale" if orient_in == "v" else "horizontale", "vertical" if orient == "v" else "horizontal",
+             " (format forcé)" if orient != orient_in else "")
     # vidéo 4K / 60 i/s / HDR : copie de travail légère pour l'image (le son vient toujours de l'original)
     from .media import make_proxy
     vsrc, vinfo = make_proxy(src, info, work)

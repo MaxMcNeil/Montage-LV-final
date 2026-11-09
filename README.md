@@ -36,7 +36,12 @@ langue: ar
 effets_sonores: non
 fin: non
 images_web: non
+format: vertical
 ```
+
+`format` (ou le champ « 🖼 Format » du formulaire) : **auto** = même format que ta vidéo (défaut) · **horizontal** ou
+**vertical** = forcé. Cartes, animations, inserts et transitions restent les mêmes. Vidéo verticale montée en horizontal :
+tu es en entier au centre, sur ton fond flouté sobre (jamais un gros plan recadré).
 
 **Passage imposé pour une de tes vidéos jointes** (facultatif) : une ligne par vidéo, nom du fichier = début-fin.
 Sans cette ligne, l'IA choisit elle-même le passage utile (25 s max, coupé en fin de phrase).
