@@ -183,6 +183,9 @@ Chaque fois que tu dis **exactement** : *écoutez ça · écoutez-moi ça · éc
 - l'extrait n'est jamais posé sur ta voix : il faut une vraie pause juste après la phrase (pour « écoutez ça », dans
   la seconde qui suit — « écoutez ça va changer… » n'est pas une annonce et est ignoré) ;
 - une formule voisine (« écoutez bien ça », « écoute ça », « écoutez ceci ») ne déclenche rien ;
+- **Jamais d'annonce dans le vide**, même sans aucune vidéo en release ou dans Drive : pas d'extrait → une **carte**
+  au même endroit, pendant ta pause : ta photo jointe qui correspond, sinon une photo libre Wikimedia du sujet, sinon une
+  carte texte sur ce que tu annonces (d'après tes mots, aucune citation inventée) ;
 - PLAN.md liste chaque annonce : passage inséré et vérification ✅, ou ⚠ la raison ; le contrôle qualité le vérifie.
 Passage imposé pour une vidéo (`discours.mp4 = 1:20-1:45`) : seul ce passage de cette vidéo est utilisé.
 
@@ -202,6 +205,9 @@ aucun. Pour garder tes longs silences : `silences_longs: non` (description de la
 
 ## 📂 Google Drive (comme le dépôt fond vert)
 
+- **📥 Récupérer médias** (*Actions* → *Run workflow*, à la main) : lit une liste `medias/<live>.txt`
+  (vidéos par recherche YouTube via yt-dlp, photos libres Wikipedia, captures d'articles) et dépose tout dans
+  `montage-joints`. **Aucune clé API utilisée.** Les sources vont dans Drive `sources-medias` (jamais dans montage-joints).
 - **Ta vidéo** peut être donnée par son chemin Drive dans le champ *source* : `gdrive:resultats/moi-ma-video.mp4`
   (ou un lien Google Drive, ou un tag de release).
 - **Dossier `montage-joints`** : ses photos / vidéos sont **toujours** prises (manuel, release et chaîne). Après un

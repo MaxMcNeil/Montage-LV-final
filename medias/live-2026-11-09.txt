@@ -1,0 +1,51 @@
+# Live du 9/11/2026 — sujet | type | nom | url ou recherche | durée max (s, vidéos)
+# Sujet 1 : 45 ans de promesses / RN 2027
+1 | video   | v101_mitterrand_10mai1981_victoire  | 10 mai 1981 Mitterrand élu annonce résultat INA | 600
+1 | photo   | p101_mitterrand                     | fr:François_Mitterrand
+1 | video   | v102_tournant_rigueur_1983          | 1983 tournant de la rigueur Mitterrand Mauroy dévaluation INA | 600
+1 | video   | v103_chirac_1995_fracture_sociale   | Chirac 1995 fracture sociale discours campagne INA | 600
+1 | photo   | p102_chirac                         | fr:Jacques_Chirac
+1 | video   | v104_pasqua_promesses_engagent      | Pasqua les promesses n'engagent que ceux qui les reçoivent | 300
+1 | photo   | p103_pasqua                         | fr:Charles_Pasqua
+1 | video   | v105_juppe_plan_1995_tva            | plan Juppé 1995 hausse TVA grèves décembre 1995 INA | 600
+1 | photo   | p104_juppe                          | fr:Alain_Juppé
+1 | video   | v106_sarkozy_travailler_plus        | Sarkozy 2007 travailler plus pour gagner plus discours | 600
+1 | photo   | p105_sarkozy                        | fr:Nicolas_Sarkozy
+1 | video   | v107_hollande_tf1_inverser_courbe   | Hollande 9 septembre 2012 TF1 inverser la courbe du chômage d'ici un an | 600
+1 | article | a101_slate_inversion_courbe         | https://www.slate.fr/story/129518/inversion-courbe-chomage
+1 | video   | v108_hollande_renonce_2016          | Hollande 1er décembre 2016 je ne serai pas candidat allocution | 900
+1 | photo   | p106_hollande                       | fr:François_Hollande
+1 | video   | v109_macron_orleans_2017_rues_bois  | Macron Orléans juillet 2017 je ne veux plus de femmes et d'hommes dans les rues dans les bois | 300
+1 | photo   | p107_macron                         | fr:Emmanuel_Macron
+1 | article | a102_fondation_logement_350000      | https://www.economiematin.fr/?p=211988
+1 | article | a103_enfants_a_la_rue_2026          | https://www.banquedesterritoires.fr/zero-enfant-la-rue-les-associations-deplorent-un-echec-collectif
+1 | article | a104_aleteia_2300_enfants           | https://fr.aleteia.org/2026/08/26/le-nombre-denfants-a-la-rue-continue-daugmenter/
+1 | video   | v110_lepen_contre_budget_oct2026    | Marine Le Pen contre-budget 140 milliards économies 2032 conférence | 900
+1 | photo   | p108_le_pen                         | fr:Marine_Le_Pen
+1 | photo   | p109_bardella                       | fr:Jordan_Bardella
+1 | article | a105_publicsenat_140_milliards      | https://www.publicsenat.fr/actualites/politique/140-milliards-deuros-deconomies-dici-2032-leffort-radical-propose-par-marine-le-pen-pour-redresser-les-f
+1 | article | a106_euronews_budget_carton         | https://fr.euronews.com/2026/10/07/france-le-gouvernement-tire-a-boulets-rouges-sur-le-contre-budget-de-marine-le-pen
+1 | video   | v111_lescure_amiel_carton_pate      | Lescure vous rêvez en couleurs Amiel budget carton-pâte RN | 600
+1 | photo   | p110_lescure                        | fr:Roland_Lescure
+1 | article | a107_letemps_equation_rn            | https://www.letemps.ch/articles/le-rn-et-son-equation-budgetaire-impossible-quand-le-chiffrage-economique-releve-davantage-de-l-ideologie
+1 | photo   | p111_elysee                         | fr:Palais_de_l'Élysée
+# Sujet 2 : 105 000 € pour un coup de main (aucun article trouvé sur l'affaire : cadre légal seulement)
+2 | article | a201_code_travail_L8113-1_local_habite | https://code.travail.gouv.fr/code-du-travail/l8113-1
+2 | article | a202_code_travail_L8221-3_dissimule    | https://code.travail.gouv.fr/code-du-travail/l8221-3
+2 | article | a203_service_public_sanctions          | https://entreprendre.service-public.gouv.fr/vosdroits/F31490?profil=tout
+2 | article | a204_entraide_entre_amis_licite        | https://finance-entreprendre.fr/peut-on-travailler-gratuitement-pour-un-ami-loi-travail-dissimule-entraide/
+2 | video   | v201_controle_chantier_inspection      | inspection du travail contrôle chantier travail dissimulé reportage | 900
+2 | video   | v202_entraide_amis_travail_dissimule   | aider un ami travaux maison travail dissimulé entraide légal | 600
+# Sujet 3 : Carlson / Trump « on meurt tous de toute façon »
+3 | video   | v301_carlson_npr_we_all_die_anyway     | Tucker Carlson NPR Inskeep Trump in the end we all die anyway | 900
+3 | video   | v302_npr_newsmakers_carlson_integral   | NPR Newsmakers Tucker Carlson MAGA split Trump nihilism | 4000
+3 | photo   | p301_tucker_carlson                    | en:Tucker_Carlson
+3 | photo   | p302_trump                             | en:Donald_Trump
+3 | photo   | p303_bureau_ovale                      | en:Oval_Office
+3 | photo   | p304_steve_inskeep                     | en:Steve_Inskeep
+3 | article | a301_npr_transcript_inskeep            | https://www.nhpr.org/2026-09-24/tucker-carlson-on-the-war-with-iran-and-why-he-worries-about-the-spread-of-tribalism
+3 | article | a302_ibtimes_we_all_dead_anyway        | https://www.ibtimes.co.uk/tucker-carlson-trump-iran-war-oval-office-claim-1821853
+3 | article | a303_baptistnews_nihilisme             | https://baptistnews.com/article/carlson-says-nihilism-drove-trump-to-war-with-iran/
+3 | article | a304_rawstory_maison_blanche           | https://www.rawstory.com/trump-carlson-iran-war-confrontation/
+3 | article | a305_mediaite_nyt_because_it_always    | https://mediaite.com/media/news/trump-gave-stunning-four-word-reply-when-tucker-carlson-asked-for-reassurances-on-iran-war-report
+3 | article | a306_lalibre_choc_carlson_trump        | https://www.lalibre.be/international/amerique/2026/03/18/la-guerre-en-iran-provoque-un-choc-frontal-entre-le-supremaciste-blanc-tucker-carlson-et-donald-trump-SYC4E5ZGKVC7BGULTQKHDJBDQI/

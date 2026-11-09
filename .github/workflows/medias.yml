@@ -1,0 +1,55 @@
+name: 📥 Récupérer médias (live → montage-joints)
+
+# Lancé UNIQUEMENT à la main (aucun cron). Aucune clé API utilisée.
+# Dépose vidéos, photos libres et captures d'articles dans le dossier Drive montage-joints,
+# prêts pour « Montage LV final ».
+on:
+  workflow_dispatch:
+    inputs:
+      liste:
+        description: "Liste de médias (fichier du dépôt). VIDE = la plus récente du dossier medias/"
+        default: ""
+      sujets:
+        description: "Sujets à récupérer : all, ou numéros séparés par des virgules (ex : 1 ou 1,3)"
+        default: "all"
+      dossier:
+        description: "Dossier Drive de destination : montage-joints, autre chemin, ou ID de dossier Drive"
+        default: "montage-joints"
+
+concurrency:
+  group: medias-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  medias:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+      YT_PROXY_URL: ${{ secrets.YT_PROXY_URL }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Outils (yt-dlp, ffmpeg, rclone)
+        run: |
+          [ -n "$RCLONE_CONF" ] || { echo "::error::secret RCLONE_CONF absent"; exit 1; }
+          for i in 1 2 3; do pip install -q -U yt-dlp && break; sleep 10; done
+          command -v ffmpeg >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg; }
+          for i in 1 2 3; do command -v rclone >/dev/null && break; curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sleep 5; done
+          command -v rclone >/dev/null || { echo "::error::rclone non installé"; exit 1; }
+
+      - name: Récupérer et déposer sur Drive
+        env:
+          SUJETS: ${{ inputs.sujets }}
+          DOSSIER: ${{ inputs.dossier }}
+          LISTE_IN: ${{ inputs.liste }}
+        run: |
+          LISTE="$LISTE_IN"
+          [ -n "$LISTE" ] || LISTE=$(ls -t medias/*.txt 2>/dev/null | head -1)
+          [ -f "$LISTE" ] || { echo "::error::liste introuvable : « $LISTE »"; exit 1; }
+          export LISTE
+          bash scripts/recup_medias.sh

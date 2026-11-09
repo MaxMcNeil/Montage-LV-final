@@ -374,6 +374,14 @@ def main(argv=None) -> int:
             kw_press_fallback(ai, words, sents, kw_info, inserts, pool_clips, orient, work, lang, maxd)
         except Exception as e:  # noqa: BLE001 - un repli raté ne bloque jamais le montage
             log.warning("repli « écoutez ça » par la presse abandonné : %s", e)
+    # 4c-bis2) « écoutez ça » TOUJOURS suivi de quelque chose : sans extrait vidéo → ta photo jointe qui correspond,
+    #          sinon photo libre Wikimedia du sujet, sinon carte texte sur ce que tu annonces (jamais bloquant)
+    if kw_info:
+        try:
+            kw_card_fallback(ai, words, sents, kw_info, inserts, att, plan, orient, work, lang,
+                             wiki=opts.get("images_web") != "non")
+        except Exception as e:  # noqa: BLE001
+            log.warning("repli « écoutez ça » en carte abandonné : %s", e)
     # 4c-ter) ouverture choc SANS vidéo jointe : la déclaration la plus forte parmi les vidéos trouvées
     #         (dernier lot Finder + recherche selon ta vidéo). Rien de solide → la vidéo commence normalement.
     if opts.get("ouverture_choc") == "oui" and opener is None and opts.get("_sans_recherche"):
@@ -444,7 +452,7 @@ def main(argv=None) -> int:
             log.warning("rythme (extraits) abandonné : %s", e)
             rythme_info = {"added": [], "holes": [], "cards": [], "thinned": [], "rule": "rythme",
                            "why": f"erreur interne ({type(e).__name__}) — montage fait sans"}
-        used_ph = {v_.get("attachment") for v_ in plan["visuals"]}
+        used_ph = {v_.get("attachment") for v_ in plan["visuals"]} | set(plan.get("_kw_photos") or ())
         pool = {"articles": [x_ for x_ in spare_articles if x_.get("titre") and x_.get("url")],
                 "photos": [x_ for x_ in att if x_["kind"] == "image" and x_["id"] not in used_ph]}
         try:   # 2) puis articles, 3) puis photos
@@ -1099,6 +1107,76 @@ def kw_press_fallback(ai, words, sents, kw_info, inserts, pool, orient, work, la
                 "; ".join(it["press_refused"][:2]) + ")"
 
 
+KW_CARD = """Montage d'une vidéo face caméra (langue « {lang} »). L'auteur dit « {phrase} » pour annoncer quelque chose,
+mais aucun extrait vidéo n'est disponible : on montre une CARTE à la place. Contexte :
+AVANT : … {before}
+APRÈS : {after} …
+Photos jointes par l'auteur (id — description) :
+{photos}
+Réponds en JSON : {{"photo": "id d'une photo jointe qui montre EXACTEMENT la personne / la chose annoncée, sinon vide",
+"sujet": "la personne ou la chose annoncée, en titre d'article Wikipédia si possible (ex : Donald Trump), sinon vide",
+"titre": "2 à 6 mots (qui parle / de quoi)",
+"texte": "12 à 30 mots en « {lang} » : ce qui est annoncé, d'après les mots de l'auteur uniquement ; JAMAIS de citation
+inventée, pas de guillemets si l'auteur ne cite pas mot pour mot"}}"""
+
+
+def kw_card_fallback(ai, words, sents, kw_info, inserts, att, plan, orient, work, lang, wiki=True) -> None:
+    """« écoutez ça » sans extrait vidéo (aucune vidéo jointe, rien de cohérent, presse indisponible) : une carte est
+    insérée au même endroit, pendant ton silence. Ordre : ta photo jointe qui correspond → photo libre Wikimedia du
+    sujet → carte texte seule. Le texte reprend ce que TU dis (aucune citation inventée)."""
+    from .assets import card_insert
+    from .keywords import _ctx
+    pend = [it for it in kw_info["items"] if not it["inserted"] and it.get("pending_t") is not None]
+    if not pend:
+        return
+    photos = [x for x in att if x["kind"] == "image"]
+    by_id = {x["id"]: x for x in photos}
+    taken = plan.setdefault("_kw_photos", [])
+    pw_, ph_ = C.GEOM[orient]["left"]["panel"][2:]
+    for it in pend:
+        bef, aft = _ctx(words, max(0, it["w1"] - 60), it["w1"], 60, 45)
+        j = None
+        if ai and getattr(ai, "ok", False):
+            ph_txt = "\n".join(f'- "{x["id"]}" — {x.get("label") or _pretty(x["name"])}'
+                               for x in photos if x["id"] not in taken) or "(aucune)"
+            try:
+                j = ai.json(KW_CARD.format(lang=lang, phrase=it["phrase"], before=bef, after=aft, photos=ph_txt))
+            except Exception as e:  # noqa: BLE001
+                log.warning("carte « écoutez ça » : IA indisponible (%s)", e)
+        j = j if isinstance(j, dict) else {}
+        texte = " ".join(str(j.get("texte") or "").split()[:34])
+        if not texte:   # sans IA : tes propres mots juste après l'annonce
+            ws = aft.split()
+            texte = " ".join(ws[:26]) + ("…" if len(ws) > 26 else "")
+        if not texte:
+            it["why"] = (it.get("why") or "") + " ; carte impossible : rien à écrire"
+            continue
+        titre = str(j.get("titre") or "").strip()[:60]
+        img_p, how, pid = None, "carte texte", None
+        x = by_id.get(str(j.get("photo") or "").strip())
+        if x and x["id"] not in taken:
+            img_p, pid, how = x["path"], x["id"], f"ta photo « {x['name']} »"
+        elif wiki and str(j.get("sujet") or "").strip():
+            w_ = wiki_image(str(j["sujet"]).strip(), [lang, "en"], work / "web" / f"kwcard_wiki{it['n']}")
+            if w_:
+                img_p, how = w_["path"], f"photo libre Wikimedia « {w_['title']} »"
+                titre = titre or str(j["sujet"]).strip()
+        asset = card_insert(texte, titre, "", img_p, orient, work, f"kwcard{it['n']}", pw_, ph_,
+                            {"speaker": titre, "label": "", "url": "", "title": titre, "source": ""}, lang)
+        if not asset:
+            it["why"] = (it.get("why") or "") + " ; carte impossible (rendu)"
+            continue
+        asset["source"] = f"MOT-CLÉ « {it['phrase']} » — CARTE ({how}) : {texte[:80]}"
+        s_i = next((s["i"] for s in sents if s["w0"] <= it["w1"] <= s["w1"]), 0)
+        inserts.append({"after": s_i, "asset": asset, "forced_t": it["pending_t"], "kw": it["n"], "kw_card": True})
+        if pid:
+            taken.append(pid)   # ta photo est montée ici : pas une 2e fois par le rythme
+        old = (it.get("why") or "").strip(" ;")
+        it.update(inserted=True, at=it["pending_t"], video=f"carte ({how})", a=0.0, b=0.0, card_kw=True,
+                  why=f"pas d'extrait vidéo ({old or 'aucun passage'}) → carte à la place")
+        log.info("Mot-clé « %s » : carte insérée (%s)", it["phrase"], how)
+
+
 OPENER_PROMPT = """Une vidéo face caméra (langue « {lang} ») doit commencer par une OUVERTURE CHOC : le passage le plus
 fort, le plus choquant ou le plus saisissant d'une des vidéos jointes ci-dessous (phrase qui choque, chiffre terrible,
 aveu, accusation, moment d'émotion), compréhensible seul, qui donne envie de rester. Sujet de la vidéo : {hook}
@@ -1303,7 +1381,10 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                  f"{sum(1 for i in its if i['inserted'])} extrait(s) inséré(s) juste après")
         for i in its:
             when = tc(out_time(segs, i["t0"]) or 0)
-            if i["inserted"]:
+            if i["inserted"] and i.get("card_kw"):
+                L.append(f"  - {when} « {i['phrase']} » → 🃏 {i['video']} (à {tc(i.get('out') or 0)}) : "
+                         f"{i.get('why') or ''}")
+            elif i["inserted"]:
                 ck = i.get("check") or {}
                 verif = (f" — vérifié ✅ ({ck.get('score')}/10)" if ck.get("ok") else
                          (f" — ⚠ cohérence douteuse : {ck.get('reason')}" if ck else " — non vérifié (IA indisponible)"))

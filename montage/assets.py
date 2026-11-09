@@ -459,14 +459,27 @@ def is_youtube(c: dict) -> bool:
 def quote_card_insert(c: dict, quote: str, orient: str, work: Path, name: str, lang: str, pw: int, ph: int) -> dict | None:
     """Extrait impossible à télécharger : la VRAIE déclaration montrée en carte plein écran pendant ton silence
     (vignette de la vidéo, citation fidèle, qui parle, média, date). Rien d'inventé : c'est la citation réelle."""
+    try:
+        img_p = thumbnail(c, work / "web" / f"{name}_thumb")
+    except Exception:  # noqa: BLE001
+        img_p = None
+    when = str(c.get("uploaded") or c.get("date") or "")[:10]
+    sub = " · ".join(x for x in (c.get("channel") or c.get("platform") or "", when) if x)
+    return card_insert(quote, c.get("speaker") or "", sub, img_p, orient, work, name, pw, ph,
+                       {"speaker": c.get("speaker") or "", "label": sub, "url": c.get("source_url"),
+                        "title": c.get("title") or "", "source": c.get("channel") or c.get("platform") or ""}, lang)
+
+
+def card_insert(text: str, label: str, sub: str, img_p, orient: str, work: Path, name: str, pw: int, ph: int,
+                credit: dict, lang: str = "fr") -> dict | None:
+    """Carte montrée pendant ton silence (photo facultative + texte + qui + où), comme un extrait : sert aux cartes
+    citation et aux « écoutez ça » sans vidéo jointe."""
     from PIL import Image
     from .panels import open_image, render_panel
+    quote = text
     try:
         W, H = SIZE[orient]
-        img_p = thumbnail(c, work / "web" / f"{name}_thumb")
-        when = str(c.get("uploaded") or c.get("date") or "")[:10]
-        sub = " · ".join(x for x in (c.get("channel") or c.get("platform") or "", when) if x)
-        panel = render_panel("statement", pw, ph, {"text": quote, "label": c.get("speaker") or "", "sublabel": sub,
+        panel = render_panel("statement", pw, ph, {"text": quote, "label": label, "sublabel": sub,
                                                    "image": open_image(img_p) if img_p else None},
                              work / "kwcards", name)
         frame = Image.open(panel["frame"]).convert("RGBA")
@@ -490,11 +503,9 @@ def quote_card_insert(c: dict, quote: str, orient: str, work: Path, name: str, l
         run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=stereo", "-t", f"{d:.3f}",
              "-c:a", "pcm_s16le", aout])
         return {"video": str(vout), "audio": str(aout), "duration": d, "frames": n, "subs": [], "translated": False,
-                "clip_lang": lang, "card": True,
-                "credit": {"speaker": c.get("speaker") or "", "label": sub, "url": c.get("source_url"),
-                           "title": c.get("title") or "", "source": c.get("channel") or c.get("platform") or ""}}
+                "clip_lang": lang, "card": True, "credit": credit}
     except Exception as e:  # noqa: BLE001
-        log.warning("carte citation %s impossible : %s", name, e)
+        log.warning("carte %s impossible : %s", name, e)
         return None
 
 
