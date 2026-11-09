@@ -166,6 +166,7 @@ jobs:
       CHAINE_FINDER: ${{ github.event.client_payload.finder }}
       CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
       CHAINE_ORIGINE: ${{ github.event.client_payload.origine }}
+      CHAINE_RECHERCHE: ${{ github.event.client_payload.recherche }}   # légère (défaut) / non — choix fait dans le fond vert
     steps:
       - name: Début du job (le montage règle ses recherches sur le temps restant)
         run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"

@@ -375,7 +375,11 @@ def chaine():
     main_video = vids[0]
     # photos / vidéos du dossier montage-joints
     ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
-    pris = [l.strip() for l in (ls.stdout or "").splitlines() if MEDIA_RE.search(l.strip())]
+    # ta vidéo brute « moi… » (source du fond vert) n'est JAMAIS un extrait, et n'est jamais retirée de ton Drive
+    tout = [l.strip() for l in (ls.stdout or "").splitlines() if MEDIA_RE.search(l.strip())]
+    pris = [l for l in tout if not is_mine(Path(l).name)]
+    if len(pris) < len(tout):
+        print(f"Dossier « {joints} » : ta vidéo « moi… » est ignorée (déjà montée via le fond vert, laissée sur ton Drive)")
     if not pris:   # « montage-joints » est un PLUS : vide, le montage continue
         print(f"Dossier « {joints} » vide : pas grave, le montage continue sans pièces jointes")
     n = 0
@@ -406,10 +410,15 @@ def chaine():
     shutil.rmtree(RAW, ignore_errors=True)
     notes, cuts = parse_cuts(os.environ.get("NOTES") or "")
     notes, opts, _ = parse_body(notes)
-    # 🔒 recherche automatique désactivée (verrou dans le montage) : seulement tes fichiers de « montage-joints »
+    # recherche : ton choix dans le fond vert (« 🔗 Chaîne — recherche ») — légère par défaut, ou non. Lot Finder : jamais.
     opts["finder"] = "non"
-    opts["recherche_presse"] = "non"
-    print("Recherche automatique : désactivée (tes photos, vidéos et captures d'articles uniquement)")
+    rech = (os.environ.get("CHAINE_RECHERCHE") or "legere").strip().lower()
+    if rech in ("non", "no", "false", "0"):
+        opts["recherche_presse"] = "non"
+        print("Recherche automatique : désactivée (tes photos, vidéos et captures d'articles uniquement)")
+    else:
+        opts["recherche_presse"] = "oui"
+        print("Recherche : légère (articles / vidéos / presse, économe) + tes fichiers de montage-joints")
     (IN / "notes.txt").write_text(notes, encoding="utf-8")
     (IN / "warnings.txt").write_text("\n".join(WARN), encoding="utf-8")
     (IN / "options.json").write_text(json.dumps(opts, ensure_ascii=False, indent=1), encoding="utf-8")
