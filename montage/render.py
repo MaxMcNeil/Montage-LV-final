@@ -291,6 +291,28 @@ def freeze(ctx: Ctx, t: float, out: Path) -> Path:
     return out
 
 
+def listen_clip(ctx: Ctx, t: float, out: Path) -> Path | None:
+    """Toi qui ÉCOUTES pendant un extrait (jamais une image figée) : un de tes vrais silences (bouche fermée, regard,
+    petits mouvements naturels), le plus proche de ce moment, ralenti un peu puis joué aller-retour (aucun saut) —
+    il tourne en boucle sous l'extrait. None si aucun silence utilisable (repli : image fixe, comme avant)."""
+    q = [(a, b) for a, b in (ctx.info.get("quiet") or []) if b - a >= 0.9]
+    if not q:
+        return None
+    a, b = min(q, key=lambda x: (abs((x[0] + x[1]) / 2 - t), -(x[1] - x[0])))
+    a0, d = a + 0.12, min(3.2, b - a - 0.24)
+    if d < 0.6:
+        return None
+    try:
+        run(["ffmpeg", "-y", "-ss", f"{a0:.3f}", "-t", f"{d:.3f}", "-i", ctx.src, "-filter_complex",
+             f"[0:v]fps={FPS},{ctx.full_chain(1.0)},setpts=1.3*PTS,fps={FPS},split[lf][lr];[lr]reverse[lrv];"
+             f"[lf][lrv]concat=n=2:v=1:a=0,format=yuv420p[v]", "-map", "[v]", "-an",
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", str(out)], timeout=300)
+        return out if out.exists() and out.stat().st_size > 1000 else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("toi qui écoutes (silence %.1f s) impossible : %s → image fixe", a, str(e)[-200:])
+        return None
+
+
 def _dims(asset: dict) -> tuple[int, int]:
     """Largeur, hauteur de la vidéo d'un extrait (mémorisées dans l'extrait)."""
     if not asset.get("_wh"):
@@ -307,7 +329,8 @@ OPENER_NOTES: list = []   # comment l'ouverture choc a été habillée (PLAN.md)
 INSERT_NOTES: list = []   # extraits du milieu qui n'ont pas pu être encadrés (PLAN.md)
 
 
-def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, opener: bool = True):
+def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, opener: bool = True,
+                   listen: Path | None = None):
     """Ouverture choc JAMAIS en plein écran (règle YouTube contenu réutilisé / monétisation) :
       cadre : toi (image de ta 1re prise, très lent zoom) dans ton cadre arrondi + l'extrait dans un cadre arrondi à
               côté (horizontal) ou dessous (vertical), sur ton fond flouté teinté bleu nuit — sobre, pas « bling » ;
@@ -320,7 +343,11 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
     tdur = N / FPS + 1
     g = Graph()
     i_clip = g.inp("-i", ins["video"])
-    i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", pa)
+    lc = listen if mode == "cadre" else None
+    if lc:   # toi qui écoutes (tes silences, aller-retour en boucle) — jamais figé
+        i_a = g.inp("-stream_loop", "-1", "-t", f"{tdur:.3f}", "-i", lc)
+    else:
+        i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", pa)
     i_b = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pb)
     norm = f"fps={FPS},settb=1/{FPS},format=yuv420p"
     dout = min(0.45, N / FPS / 4)
@@ -387,10 +414,16 @@ def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int
     opener = bool(seg.insert.get("opener"))
     pa = freeze(ctx, prev_t, ctx.work / f"freeze_{k}_a.png")
     pb = freeze(ctx, next_t, ctx.work / f"freeze_{k}_b.png")
+    listen = listen_clip(ctx, prev_t, ctx.work / f"listen_{k}.mp4")
     if opener:   # ouverture choc : jamais en plein écran — toi visible à côté, sinon extrait réduit sur ton fond
         for mode in ("cadre", "simple"):
             try:
-                _opener_framed(seg, ctx, out, pa, pb, mode)
+                try:
+                    _opener_framed(seg, ctx, out, pa, pb, mode, listen=listen)
+                except Exception:  # noqa: BLE001 - toi qui écoutes en échec : même habillage, image fixe
+                    if not listen:
+                        raise
+                    _opener_framed(seg, ctx, out, pa, pb, mode)
                 OPENER_NOTES.append("ouverture choc habillée : " + (
                     "toi dans ton cadre + l'extrait dans un cadre à côté (jamais en plein écran)" if mode == "cadre"
                     else "extrait réduit à 80 % sur ton fond (le cadre n'a pas pu être fait)"))
@@ -402,7 +435,12 @@ def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int
     # extrait au milieu de la vidéo : lui aussi JAMAIS en plein écran (contenu réutilisé) — toi visible à côté
     for mode in ("cadre", "simple"):
         try:
-            _opener_framed(seg, ctx, out, pa, pb, mode, opener=False)
+            try:
+                _opener_framed(seg, ctx, out, pa, pb, mode, opener=False, listen=listen)
+            except Exception:  # noqa: BLE001 - toi qui écoutes en échec : même habillage, image fixe
+                if not listen:
+                    raise
+                _opener_framed(seg, ctx, out, pa, pb, mode, opener=False)
             if mode == "simple":
                 INSERT_NOTES.append(f"extrait à {seg.out0:.0f} s : réduit à 80 % (le cadre n'a pas pu être fait)")
             return

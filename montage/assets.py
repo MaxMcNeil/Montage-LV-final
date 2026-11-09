@@ -63,9 +63,6 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                 info = probe(a["path"])
                 a["duration"] = info["duration"]
                 a["has_audio"] = info["audio"]
-                fr = work / f"{a['id']}_frame.jpg"
-                run(["ffmpeg", "-y", "-ss", f"{min(3.0, info['duration'] / 3):.2f}", "-i", a["path"], "-frames:v", "1", fr])
-                img = open_image(fr)
                 if info["audio"]:
                     try:
                         t = transcribe(Path(a["path"]), work, None, tag=a["id"])
@@ -76,6 +73,13 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                         log.warning("vidéo jointe %s : transcription impossible (%s) → utilisée quand même, sans "
                                     "ses paroles", a["name"], e)
                         a["sentences"] = []
+                # image décrite : au milieu de la 1re VRAIE phrase (jamais le générique / jingle du début)
+                real = [x for x in a.get("sentences") or [] if len(x["text"].split()) >= 4]
+                t_fr = (real[0]["t0"] + real[0]["t1"]) / 2 if real else min(info["duration"] * 0.3, 20.0)
+                fr = work / f"{a['id']}_frame.jpg"
+                run(["ffmpeg", "-y", "-ss", f"{max(0.0, min(t_fr, info['duration'] - 0.2)):.2f}", "-i", a["path"],
+                     "-frames:v", "1", fr])
+                img = open_image(fr)
                 if info["duration"] <= 0 or not info.get("video"):
                     raise ValueError("pas d'image vidéo lisible")
             except Exception as e:  # noqa: BLE001
@@ -88,12 +92,16 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                 f"pour un monteur vidéo. Réponds en JSON : {{\"description\": \"ce que l'on voit, en une phrase (personnes "
                 f"reconnaissables si leur nom est écrit ou évident, lieu, objet, document, texte lisible)\", "
                 f"\"label\": \"légende de 2 à 6 mots en langue « {lang} »\", \"document\": true si c'est une capture d'écran, "
-                f"un document, un logo ou un graphique (à ne pas rogner)}}",
+                f"un document, un logo ou un graphique (à ne pas rogner), \"generique\": true si c'est un générique, un "
+                f"jingle, une intro ou un logo animé de chaîne, un écran « abonnez-vous » (pas un vrai contenu)}}",
                 image=("image/jpeg", _jpeg_bytes(img)), media_key=f"{a['name']}|{os.path.getsize(a['path'])}")
             if isinstance(j, dict):
                 a["description"] = str(j.get("description") or "")[:400]
                 a["label"] = str(j.get("label") or "")[:60]
                 a["contain"] = bool(j.get("document"))
+                if a["kind"] != "image" and j.get("generique"):   # générique / jingle : jamais monté
+                    a["head_skip"] = min(a.get("duration", 0) * 0.25, 15.0)
+                    log.info("vidéo jointe %s : générique au début → passé (%.0f s)", a["name"], a["head_skip"])
     att[:] = [a for a in att if not a.get("broken")]
 
 
@@ -365,7 +373,9 @@ def choose_bounds(sents: list, want0: float, want1: float, maxd: float, dur: flo
         a = max(0.0, want0)
         b = min(dur, want1 if want1 > a + 2 else a + maxd)
         return a, min(b, a + maxd)
-    first = next((s for s in sents if s["t0"] >= want0 - 1.0), sents[0])
+    # jamais un générique, un jingle ou un nom de chaîne chanté : on commence sur une vraie phrase (4 mots ou plus)
+    first = next((s for s in sents if s["t0"] >= want0 - 1.0 and len(str(s.get("text", "x x x x")).split()) >= 4),
+                 next((s for s in sents if s["t0"] >= want0 - 1.0), sents[0]))
     a = max(0.0, first["t0"] - 0.3)
     b = None
     lim = want1 + 1.0 if want1 > want0 + 2 else 1e9

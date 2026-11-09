@@ -254,7 +254,7 @@ def main(argv=None) -> int:
         if not x or (len(inserts) >= cap_att and x["id"] in used):
             continue
         s_ = x.get("sentences") or []
-        want0 = ins.get("clip_start") or 0.0
+        want0 = max(ins.get("clip_start") or 0.0, x.get("head_skip") or 0.0)   # jamais le générique
         want1 = ins.get("clip_end") or 0.0
         if x.get("cut"):  # passage imposé par toi : appliqué à la lettre
             a0, b0 = max(0.0, x["cut"][0]), min(x["duration"], x["cut"][1])
@@ -420,6 +420,9 @@ def main(argv=None) -> int:
         from .cadence import fill, fill_cards, thin, visual_time
 
         def _prep(x, a_, b_, name):
+            hs = x.get("head_skip") or 0.0          # jamais le générique / jingle du début
+            if a_ < hs:
+                a_, b_ = hs, max(b_ - a_ + hs, hs + 6.0)
             s2 = x.get("sentences") or []
             asset_ = prepare_insert(Path(x["path"]), a_, b_, orient, work, name, lang, ai, s2 if s2 else None, x.get("lang"))
             if asset_:
@@ -602,6 +605,7 @@ def main(argv=None) -> int:
 
     # 7) rendu
     fonts = Path(a.fonts).resolve() if Path(a.fonts).is_dir() else None
+    vinfo = dict(vinfo, quiet=list(quiet))   # tes silences : pendant un extrait, tu « écoutes » (jamais figé)
     ctx = Ctx(Path(vsrc).resolve(), vinfo, face, orient, work.resolve(), ass_path, fonts)
     from . import render as R
     R.BRAND = brand_check(brand, work / "chaine")
@@ -1296,6 +1300,8 @@ def pick_opener(ai, att: list, lang: str, orient: str, work: Path, hook: str, la
         a0 = (x.get("cut") or [0.0])[0]
         pick = (x, a0, a0 + 8.0, "")
     x, a0, b0 = pick[0], pick[1], pick[2]
+    if a0 < (x.get("head_skip") or 0.0):         # ouverture choc : jamais le générique du début
+        a0, b0 = x["head_skip"], max(b0 - a0 + x["head_skip"], x["head_skip"] + 6.0)
     s_ = x.get("sentences") or []
     a, b = choose_bounds(s_, a0, b0, 12.0, x["duration"]) if s_ else (max(0.0, a0), min(x["duration"], b0))
     b = min(b, a + 15.0)
@@ -1529,7 +1535,7 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                          f"parles | passage le plus fort de l'extrait | {a.get('source', '—')} |")
                 continue
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | Extrait vidéo{tr} | dans un cadre à côté de toi "
-                     f"(ta vidéo en pause, jamais plein écran) | après « {said} » | {a.get('source', '—')} |")
+                     f"(toi qui écoutes, jamais figé ni plein écran) | après « {said} » | {a.get('source', '—')} |")
     used_att = {c["v"].get("attachment") for c in chosen} | {s.insert.get("attachment") for s in segs if s.kind == "insert"} \
         | {(s.insert.get("asset") or {}).get("attachment") for s in segs if s.kind == "insert"}
     left = [x["name"] for x in att if x["id"] not in used_att]
