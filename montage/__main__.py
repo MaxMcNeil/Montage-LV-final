@@ -50,7 +50,7 @@ def options(path: str | None) -> dict:
     yes = {"oui", "yes", "si", "sì", "true", "1", "on", "نعم"}
     no = {"non", "no", "false", "0", "off", "لا", "aucun", "aucuns", "sans", "désactivé", "desactive", "désactivés", "nessuno"}
     for k in ("sous_titres", "recherche_presse", "images_web", "effets_sonores", "fin", "ouverture_choc", "silences_longs",
-              "mots_cles", "rythme", "logo", "mise_en_scene", "voix_studio"):
+              "mots_cles", "rythme", "logo", "mise_en_scene", "voix_studio", "habillage", "decor"):
         o[k] = "non" if o[k] in no else ("oui" if o[k] in yes else C.DEFAULTS[k])
     f = (o.get("finder") or "dernier").strip()
     o["finder"] = "non" if f.lower() in no else ("dernier" if f.lower() in yes | {"dernier", "last", "auto"} else f)
@@ -524,9 +524,31 @@ def main(argv=None) -> int:
         except Exception as e:  # noqa: BLE001 - repli : bandeau de fin texte
             log.warning("carte de fin (cadre) impossible : %s → bandeau texte", e)
             outro_v = None
+    # HABILLAGE (horizontal) : là où rien n'est prévu, toi dans ton cadre + carte sobre tirée de ce que tu dis
+    amb_fn = None
+    if orient == "h" and opts.get("habillage") != "non" and sents:
+        try:
+            from .habillage import clean_quotes, make_ambient
+            quotes_ = clean_quotes(ai, sents, lang)
+
+            def _amb_render(kind_, data_, name_):
+                try:
+                    return render_panel(kind_, pw, ph, data_, pdir, name_)
+                except Exception as e_:  # noqa: BLE001
+                    log.warning("habillage %s : %s", name_, e_)
+                    return None
+            amb_fn = make_ambient(sents, quotes_, plan["chapters"], _amb_render, lang)
+            log.info("Habillage : %d citation(s) possible(s) + chiffres clés de tes phrases", len(quotes_))
+        except Exception as e:  # noqa: BLE001 - bonus : jamais bloquant
+            log.warning("habillage abandonné : %s", e)
     segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
                             opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats,
-                            outro=outro_v, env=env_son, min_start=b0)
+                            outro=outro_v, env=env_son, min_start=b0, ambient=amb_fn)
+    n_amb = sum(1 for c in chosen if c.get("ambient"))
+    if n_amb:
+        log.info("Habillage : %d carte(s) (phrase forte / chiffre clé) là où rien n'était prévu", n_amb)
+        brand.setdefault("notes", []).append(f"🗂 {n_amb} carte(s) d'habillage (ta phrase forte ou ton chiffre clé, à "
+                                             "côté de toi) là où aucun média n'était prévu")
     if voice_info is not None:
         voice_info["stats"] = zstats
     if kw_info:  # mots-clés : extrait réellement placé ? (sinon la raison est notée)
@@ -607,6 +629,16 @@ def main(argv=None) -> int:
     fonts = Path(a.fonts).resolve() if Path(a.fonts).is_dir() else None
     vinfo = dict(vinfo, quiet=list(quiet))   # tes silences : pendant un extrait, tu « écoutes » (jamais figé)
     ctx = Ctx(Path(vsrc).resolve(), vinfo, face, orient, work.resolve(), ass_path, fonts)
+    # DÉCOR (chaîne depuis le fond vert) : logo de la chaîne qui tourne lentement derrière toi dans les plans pleins
+    fond_in = Path("input") / f"fond-{orient_in}.jpg"
+    if opts.get("decor") != "non" and fond_in.exists():
+        try:
+            from .decor import build as decor_build
+            ctx.decor, d_note = decor_build(fond_in, brand.get("end_src"), Path(vsrc), vinfo, face, work)
+        except Exception as e:  # noqa: BLE001 - bonus : jamais bloquant
+            ctx.decor, d_note = None, f"décor abandonné ({type(e).__name__})"
+        log.info("Décor : %s", d_note)
+        brand.setdefault("notes", []).append(("🌀 " if ctx.decor else "ℹ ") + d_note)
     from . import render as R
     R.BRAND = brand_check(brand, work / "chaine")
     R.BRAND_FAILS.clear()
@@ -644,7 +676,8 @@ def main(argv=None) -> int:
         else:
             try:
                 vert_note = _vertical_version(segs, sub_fn=_textes, brand=brand, aud=aud, vsrc=vsrc, vinfo=vinfo,
-                                              face=face, work=work, outd=outd, fonts=fonts, lang=lang)
+                                              face=face, work=work, outd=outd, fonts=fonts, lang=lang,
+                                              decor=ctx.decor)
             except Exception as e:  # noqa: BLE001 - jamais bloquant : le montage horizontal est déjà prêt
                 log.warning("version verticale impossible : %s", e)
                 vert_note = f"⚠ version verticale pour les Shorts impossible ({type(e).__name__}) : Shorts recadrés au centre"
@@ -845,7 +878,7 @@ def _num(v) -> float:
         return 0.0
 
 
-def _vertical_version(segs, sub_fn, brand, aud, vsrc, vinfo, face, work, outd, fonts, lang) -> str:
+def _vertical_version(segs, sub_fn, brand, aud, vsrc, vinfo, face, work, outd, fonts, lang, decor=None) -> str:
     """Même montage (coupes, cartes, extraits, son) rendu en 1080x1920 : output/montage-shorts-vertical.mp4."""
     from . import chaine as K
     from . import render as R
@@ -871,6 +904,7 @@ def _vertical_version(segs, sub_fn, brand, aud, vsrc, vinfo, face, work, outd, f
         wv = (work / "vertical").resolve()
         wv.mkdir(parents=True, exist_ok=True)
         ctx_v = Ctx(Path(vsrc).resolve(), vinfo, face, "v", wv, ass_v, fonts)
+        ctx_v.decor = decor
         vid_v = render_video(segs, ctx_v, wv / "video_v.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
         tag = ""
         if bv and bv.get("bug") and len(R.BRAND_FAILS) < len(segs):

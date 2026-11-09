@@ -44,6 +44,26 @@ class Ctx:
         # (jamais de gros plan recadré et flou sur la tête)
         self.pillar = orient == "h" and self.sh > self.sw * 1.05
         self._n = 0
+        self.decor = None   # chaîne fond vert : {"bg", "decor", "period"} → logo qui tourne derrière toi (plans pleins)
+
+    def decor_inputs(self, g, t: float, dur: float) -> tuple[int, int]:
+        """Ajoute au graphe ta silhouette et le décor, calés EXACTEMENT sur le temps t de ta vidéo."""
+        d = self.decor
+        mi = g.inp("-ss", f"{max(0.0, t):.4f}", "-t", f"{dur:.4f}", "-i", d["matte"])
+        di = g.inp("-stream_loop", "-1", "-ss", f"{max(0.0, t) % d['period']:.4f}", "-t", f"{dur:.4f}", "-i", d["decor"])
+        return mi, di
+
+    def _decor_pre(self, mi: int, di: int) -> str:
+        """Début de chaîne (à la taille de ta vidéo) : toi (silhouette suivie) posé sur le décor (même fond + logo qui
+        tourne). Se termine par une virgule : la suite (cadrage, zoom) s'enchaîne."""
+        self._n += 1
+        n = self._n
+        return (f"format=yuva420p[dq{n}];"
+                f"[{mi}:v]fps={FPS},setpts=N/{FPS}/TB,scale={self.sw}:{self.sh}:flags=bicubic,boxblur=2:1,"
+                f"format=gray[dm{n}];"
+                f"[dq{n}][dm{n}]alphamerge[df{n}];"
+                f"[{di}:v]fps={FPS},setpts=N/{FPS}/TB[dd{n}];"
+                f"[dd{n}][df{n}]overlay=shortest=1:format=auto,setsar=1,")
 
     def _pillar_geom(self, z: float = 1.0) -> tuple[int, int, int]:
         """Taille (largeur, hauteur) de ta vidéo au centre et son décalage x, pour le mode « vertical en horizontal »."""
@@ -51,7 +71,11 @@ class Ctx:
         fw = _even(self.sw * fh / self.sh)
         return fw, fh, (self.W - fw) // 2
 
-    def full_chain(self, z: float = 1.0) -> str:
+    def full_chain(self, z: float = 1.0, decor_in: tuple | None = None) -> str:
+        pre = self._decor_pre(*decor_in) if (self.decor and decor_in) else ""
+        return pre + self._frame_chain(z)
+
+    def _frame_chain(self, z: float = 1.0) -> str:
         W, H = self.W, self.H
         if self.pillar:
             self._n += 1
@@ -157,14 +181,19 @@ class Graph:
         run(cmd, timeout=3600)
 
 
-def _talk(g: Graph, ctx: Ctx, atoms, chain_for) -> str:
-    """Concatène les morceaux de ta vidéo (chacun avec son propre traitement) → étiquette [cat]."""
+def _talk(g: Graph, ctx: Ctx, atoms, chain_for, decor: bool = False) -> str:
+    """Concatène les morceaux de ta vidéo (chacun avec son propre traitement) → étiquette [cat].
+    decor=True (plans pleins, chaîne fond vert) : chain_for(at, dec) reçoit ta silhouette et le décor calés sur at."""
     labels = []
+    use_d = decor and ctx.decor is not None
+
+    def chain(at, t0, dur):
+        return chain_for(at, ctx.decor_inputs(g, t0, dur)) if use_d else chain_for(at)
     for k, at in enumerate(atoms):
         n = frames(at.b - at.a)
         i = g.inp("-ss", f"{at.a:.4f}", "-t", f"{at.b - at.a + 0.6:.4f}", "-i", ctx.src)
         g.add(f"[{i}:v]fps={FPS},tpad=stop_mode=clone:stop_duration=1,trim=end_frame={n},setpts=N/{FPS}/TB,"
-              f"{chain_for(at)},settb=1/{FPS},format=yuv420p[t{k}]")
+              f"{chain(at, at.a, at.b - at.a + 0.6)},settb=1/{FPS},format=yuv420p[t{k}]")
         nx = min(frames(getattr(at, "xin", 0.0) or 0.0), n - 1)
         if k > 0 and nx >= 3 and getattr(at, "xfrom", None) is not None:
             # fondu doux : les images du silence supprimé (juste après le morceau précédent) se fondent dans celui-ci —
@@ -172,7 +201,7 @@ def _talk(g: Graph, ctx: Ctx, atoms, chain_for) -> str:
             p = at.xfrom
             j = g.inp("-ss", f"{p.b:.4f}", "-t", f"{nx / FPS + 0.6:.4f}", "-i", ctx.src)
             g.add(f"[{j}:v]fps={FPS},tpad=stop_mode=clone:stop_duration=1,trim=end_frame={nx + 2},setpts=N/{FPS}/TB,"
-                  f"{chain_for(p)},settb=1/{FPS},format=yuv420p[xa{k}]")
+                  f"{chain(p, p.b, nx / FPS + 0.6)},settb=1/{FPS},format=yuv420p[xa{k}]")
             g.add(f"[xa{k}][t{k}]xfade=transition=fade:duration={nx / FPS:.4f}:offset=0,"
                   f"trim=end_frame={n},setpts=N/{FPS}/TB[tx{k}]")
             labels.append(f"[tx{k}]")
@@ -187,7 +216,7 @@ def _talk(g: Graph, ctx: Ctx, atoms, chain_for) -> str:
 
 def render_full(seg, ctx: Ctx, out: Path):
     g = Graph()
-    _talk(g, ctx, seg.atoms, lambda at: ctx.full_chain(at.zoom))
+    _talk(g, ctx, seg.atoms, lambda at, dec=None: ctx.full_chain(at.zoom, decor_in=dec), decor=True)
     g.add(f"[cat]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
     g.run(out, seg.n, "out", out.with_suffix(".txt"))
 
@@ -287,6 +316,15 @@ def _fit_panel(panel: dict, px: int, py: int, pw: int, ph: int, work: Path):
 
 def freeze(ctx: Ctx, t: float, out: Path) -> Path:
     t = max(0.0, min(t, ctx.info["duration"] - 0.05))
+    if ctx.decor:   # même image que le plan plein (logo derrière toi), pour un fondu sans saut
+        try:
+            d = ctx.decor
+            run(["ffmpeg", "-y", "-ss", f"{t:.4f}", "-i", ctx.src, "-ss", f"{t:.4f}", "-i", d["matte"],
+                 "-ss", f"{t % d['period']:.4f}", "-i", d["decor"], "-filter_complex",
+                 f"[0:v]{ctx.full_chain(1.0, decor_in=(1, 2))}[o]", "-map", "[o]", "-frames:v", "1", out])
+            return out
+        except Exception as e:  # noqa: BLE001
+            log.warning("image fixe avec décor impossible (%s) : sans décor", str(e)[-200:])
     run(["ffmpeg", "-y", "-ss", f"{t:.4f}", "-i", ctx.src, "-frames:v", "1", "-vf", ctx.full_chain(1.0), out])
     return out
 
@@ -694,7 +732,7 @@ def card_spans(segs) -> list[tuple[float, float]]:
     """(début, fin) dans la vidéo finale de chaque carte affichée à côté de toi (segments consécutifs regroupés)."""
     out, prev = [], None
     for s in segs:
-        if s.kind == "split" and s.panel is not None:
+        if s.kind == "split" and s.panel is not None and not (isinstance(s.panel, dict) and s.panel.get("ambient")):
             if prev is s.panel and out:
                 out[-1] = (out[-1][0], s.out0 + s.dur)
             else:
@@ -742,6 +780,8 @@ def build_audio(segs, main_wav: Path, out: Path, sfx: bool, chapter_times: list)
     if sfx:
         marks = []
         for k, s in enumerate(segs):
+            if s.kind == "split" and isinstance(s.panel, dict) and s.panel.get("ambient"):
+                continue   # carte d'habillage (ta phrase / chiffre) : en silence, jamais de « whoosh » à répétition
             if s.kind in ("split", "insert"):
                 marks.append((s.out0 + (0.12 if s.kind == "split" else 0.0), k))
                 marks.append((s.out0 + s.dur - 0.45, k + 1000))

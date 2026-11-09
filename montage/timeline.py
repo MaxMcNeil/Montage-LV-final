@@ -186,7 +186,7 @@ def tighten_inserts(pts: list, keep: list, words: list, sil: list, voice_free=No
 
 def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, orient, opener=None,
              sil=None, voice_free=None, energy=None, stats=None, outro=None, outro_dur: float = 5.5,
-             env=None, min_start: float = 0.0) -> tuple[list, list]:
+             env=None, min_start: float = 0.0, ambient=None) -> tuple[list, list]:
     """visuals : [{..., "asset": panneau}], inserts : [{"after": i, "asset": extrait}].
     Retourne (segments, panneaux_retenus)."""
     if not keep:
@@ -343,6 +343,32 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
             chosen = [c for c in chosen if c["en"] + 1.0 <= st]
             chosen.append({"v": outro, "st": q(st), "en": q(en)})
             outro["placed"] = True
+    # 2c) HABILLAGE (horizontal) : là où rien n'est prévu, tu passes dans ton cadre avec, à côté, une carte sobre tirée
+    #     de ce que tu dis (phrase forte, chiffre clé, chapitre) — ~8-10 s de carte puis ~3 s plein cadre, en alternance.
+    #     Jamais sur un titre de chapitre, un extrait ou un autre média ; les médias réels restent prioritaires.
+    if ambient is not None and sents:
+        AMB_MAX, AMB_FULL = 10.0, 2.6
+        last_en = -1e9
+        for k, s_ in enumerate(sents):
+            st = s_["t0"] - 0.12
+            if st < last_en + AMB_FULL:
+                continue
+            idx = [k]
+            en = s_["t1"] + 0.45
+            for k2 in range(k + 1, len(sents)):          # phrases suivantes tant que la carte reste lisible (≤ 9 s)
+                if sents[k2]["t1"] + 0.45 - st > AMB_MAX:
+                    break
+                idx.append(k2)
+                en = sents[k2]["t1"] + 0.45
+            en = min(max(en, st + 5.0), st + AMB_MAX)
+            w = fit(st, en, gap=2.2, dmin=4.0)
+            if w is None:
+                continue
+            v = ambient(idx)
+            if not v or not v.get("asset"):
+                continue
+            chosen.append({"v": v, "st": q(w[0]), "en": q(w[1]), "ambient": True})
+            last_en = w[1]
     chosen.sort(key=lambda c: c["st"])
     for i, c in enumerate(chosen):
         c["side"] = "left" if i % 2 == 0 else "right"

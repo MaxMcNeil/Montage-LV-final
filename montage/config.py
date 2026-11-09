@@ -146,6 +146,8 @@ DEFAULTS = {
     "mise_en_scene": "oui",         # oui : plans (zooms) choisis selon ta voix (ton qui monte = plan serré) et ton débit
     "voix_studio": "non",           # oui : ta voix traitée façon studio (clarté, débruitage doux, volume régulier)
     "vitesse": "1",                 # 1 = normale ; 1.1 = 10 % plus rapide (0.8 à 1.5), appliquée avant le montage
+    "habillage": "oui",             # oui (horizontal) : là où rien n'est prévu, toi dans ton cadre + carte de ta phrase
+    "decor": "oui",                 # oui : en chaîne depuis le fond vert, le logo tourne lentement derrière toi (plein cadre)
     "format": "auto",               # auto = même format que ta vidéo | horizontal | vertical (forcé)
 }
 

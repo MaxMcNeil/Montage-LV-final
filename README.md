@@ -38,11 +38,22 @@ fin: non
 images_web: non
 format: vertical
 vitesse: 1.1
+habillage: oui
+decor: oui
 ```
 
 `format` (ou le champ « 🖼 Format » du formulaire) : **auto** = même format que ta vidéo (défaut) · **horizontal** ou
 **vertical** = forcé. Cartes, animations, inserts et transitions restent les mêmes. Vidéo verticale montée en horizontal :
 tu es en entier au centre, sur ton fond flouté sobre (jamais un gros plan recadré).
+
+`habillage` (vidéo **horizontale**, défaut **oui**) : là où aucun média n'est prévu, tu passes dans ton cadre avec, à
+côté, une carte sobre tirée de **ce que tu dis** : ton **chiffre clé** (105 000 €, 2 300 enfants…) ou ta **phrase forte**
+(orthographe des noms corrigée, sens inchangé ; légende « À RETENIR » ou titre du chapitre). ~8-10 s de carte puis ~3 s
+plein cadre. Sans bruitage. Une seule demande à l'IA pour toute la vidéo (sans IA : chiffres clés seulement).
+
+`decor` (défaut **oui**, chaîne depuis le fond vert) : dans les plans pleins, le **logo de la chaîne tourne lentement
+derrière toi** (style plateau télé, filigrane). Le fond vert transmet l'image de fond qu'il a posée ; le Montage en déduit
+ta silhouette (jamais de logo sur toi). Fond non reconnu → montage normal, sans logo derrière toi.
 
 `vitesse` (ou le champ « ⏩ Vitesse ») : **1** = normale (défaut) · **1.1** = 10 % plus rapide (0.8 à 1.5). Ta voix garde sa
 hauteur, image et son restent synchro à l'image près ; appliquée AVANT le montage (cartes et inserts calés dessus). En
