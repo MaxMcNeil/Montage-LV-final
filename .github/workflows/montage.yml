@@ -77,6 +77,9 @@ on:
         type: choice
         options: [auto, oui, non]
         default: auto
+      vitesse:
+        description: "⏩ Vitesse de ta parole : 1 = normale · 1.1 = 10 % plus rapide (0.8 à 1.5) — voix inchangée, image et son synchro. En chaîne depuis le fond vert : déjà appliquée là-bas, ignorée ici"
+        default: "1"
       chaine_shorts:
         description: "🔗 Enchaîner les Shorts (Push-overlay) après ce montage"
         type: choice
@@ -320,6 +323,32 @@ jobs:
           SRC_TAG: ${{ steps.fetch.outputs.tag }}
         run: |
           bash scripts/release-status.sh "$SRC_TAG" run "montage lancé — [suivre le travail](https://github.com/$REPO/actions/runs/${{ github.run_id }})"
+
+      # ⏩ Vitesse (facultatif, défaut 1 = rien) : appliquée à TA vidéo AVANT le montage → transcription, coupes, cartes
+      # et inserts sont calés sur la vidéo accélérée (aucun décalage). Le son est calé à l'image près sur la vidéo.
+      # En chaîne depuis le fond vert (CHAINE_ID), la vitesse a déjà été appliquée là-bas : jamais deux fois.
+      - name: Vitesse de ta parole (défaut 1 = inchangée)
+        if: steps.fetch.outputs.skip != '1'
+        env:
+          VIT_IN: ${{ inputs.vitesse }}
+          VID: ${{ steps.fetch.outputs.video }}
+        run: |
+          V="${VIT_IN:-}"
+          if [ -z "$V" ] || [ "$V" = "1" ]; then   # réglage écrit dans la description de la release (« vitesse: 1.1 »)
+            V=$(python3 -c "import json;print(json.load(open('input/options.json')).get('vitesse',''))" 2>/dev/null || true)
+          fi
+          V="${V:-1}"
+          if python3 -c "import sys; sys.exit(0 if abs(float('${V//,/.}') - 1) < 0.001 else 1)" 2>/dev/null; then
+            echo "Vitesse : normale (1)"; exit 0
+          fi
+          if [ -n "${CHAINE_ID:-}" ]; then
+            echo "::notice title=Vitesse::chaîne depuis le fond vert : la vitesse y a déjà été appliquée — ×$V ignoré ici (jamais deux fois)"
+            exit 0
+          fi
+          FR=$(ffprobe -v error -select_streams v:0 -show_entries stream=avg_frame_rate -of csv=p=0 "$VID" | head -1)
+          case "$FR" in ""|0/0|0) FR=30 ;; esac
+          bash scripts/vitesse.sh "$VID" - "$V" "$FR"
+          echo "### ⏩ Vitesse ×$V appliquée à ta vidéo (voix inchangée, synchro à l'image près)" >> "$GITHUB_STEP_SUMMARY"
 
       - name: Montage (transcription, plan, médias, rendu)
         if: steps.fetch.outputs.skip != '1'

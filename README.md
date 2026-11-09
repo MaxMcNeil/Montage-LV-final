@@ -37,11 +37,16 @@ effets_sonores: non
 fin: non
 images_web: non
 format: vertical
+vitesse: 1.1
 ```
 
 `format` (ou le champ « 🖼 Format » du formulaire) : **auto** = même format que ta vidéo (défaut) · **horizontal** ou
 **vertical** = forcé. Cartes, animations, inserts et transitions restent les mêmes. Vidéo verticale montée en horizontal :
 tu es en entier au centre, sur ton fond flouté sobre (jamais un gros plan recadré).
+
+`vitesse` (ou le champ « ⏩ Vitesse ») : **1** = normale (défaut) · **1.1** = 10 % plus rapide (0.8 à 1.5). Ta voix garde sa
+hauteur, image et son restent synchro à l'image près ; appliquée AVANT le montage (cartes et inserts calés dessus). En
+chaîne depuis le fond vert, la vitesse est déjà appliquée là-bas : ignorée ici, jamais deux fois.
 
 **Passage imposé pour une de tes vidéos jointes** (facultatif) : une ligne par vidéo, nom du fichier = début-fin.
 Sans cette ligne, l'IA choisit elle-même le passage utile (25 s max, coupé en fin de phrase).
