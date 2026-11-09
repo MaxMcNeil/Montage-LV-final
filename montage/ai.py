@@ -48,14 +48,48 @@ def parse_json_loose(t: str):
     raise ValueError("réponse IA illisible")
 
 
+def gemini_models(key: str, timeout: float = 20) -> list[str]:
+    """Modèles Flash RÉELLEMENT accessibles avec cette clé, du plus récent au plus ancien (liste demandée à Google :
+    gratuite, ne consomme aucun quota). Aucun nom figé : un modèle retiré par Google disparaît tout seul.
+    Repli (Google injoignable) : les alias « latest », qui suivent toujours le dernier modèle."""
+    base = ["gemini-flash-latest", "gemini-flash-lite-latest"]
+    try:
+        r = requests.get("https://generativelanguage.googleapis.com/v1beta/models", params={"key": key, "pageSize": 200},
+                         timeout=timeout)
+        if r.status_code != 200:
+            return base
+        found = []
+        for m in r.json().get("models") or []:
+            name = str(m.get("name") or "").replace("models/", "")
+            acts = m.get("supportedGenerationMethods") or []
+            if "flash" in name and "generateContent" in acts and not re.search(r"image|tts|audio|live|embed|think", name):
+                found.append(name)
+
+        def rank(n):
+            v = re.search(r"gemini-(\d+(?:\.\d+)?)", n)
+            ver = float(v.group(1)) if v else 0.0
+            return (-ver, "lite" in n, "preview" in n or "exp" in n, len(n))
+        found.sort(key=rank)
+        return list(dict.fromkeys(["gemini-flash-latest"] + found + base))
+    except (requests.RequestException, ValueError):
+        return base
+
+
 class _MiniGemini:
-    MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"]
     URL = "https://generativelanguage.googleapis.com/v1beta/models/{m}:generateContent"
 
     def __init__(self, ks):
         self.keys = ks
         self.dead: set = set()
         self.i = 0
+        self._models = None
+
+    @property
+    def MODELS(self):   # découverts une fois, au premier besoin (secours seulement)
+        if self._models is None:
+            self._models = gemini_models(self.keys[0])[:8]
+            log.info("IA de secours : modèles Gemini %s", ", ".join(self._models))
+        return self._models
 
     def json(self, prompt, image=None, timeout=150):
         parts = []

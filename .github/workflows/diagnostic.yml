@@ -1,0 +1,61 @@
+name: Diagnostic
+
+# Teste les clés de CE dépôt (Gemini, Groq, relais, YouTube, presse, Google Drive, jeton de la chaîne) sans rien monter.
+# Économe : au plus 1 toute petite demande par clé d'IA ; aucune clé n'est jamais affichée.
+# À lancer à la main (onglet Actions → Diagnostic → Run workflow) : aucune exécution automatique.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Tester les clés
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Jeton GitHub App (chaîne → Shorts)
+        id: chaine_tok
+        if: vars.CHAINE_APP_ID != ''
+        continue-on-error: true
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.CHAINE_CLIENT_ID }}
+          app-id: ${{ vars.CHAINE_CLIENT_ID == '' && vars.CHAINE_APP_ID || '' }}
+          private-key: ${{ secrets.CHAINE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: Push-overlay
+
+      - name: Outils (rclone si Google Drive est configuré)
+        env:
+          HAS_RCLONE: ${{ secrets.RCLONE_CONF != '' }}
+        run: |
+          python3 -c "import requests" 2>/dev/null || pip install --quiet requests
+          if [ "$HAS_RCLONE" = "true" ]; then
+            for i in 1 2 3; do command -v rclone >/dev/null && break; curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || sleep 5; done
+          fi
+
+      - name: Tester chaque clé
+        env:
+          GEMINI_API_KEYS: ${{ secrets.GEMINI_API_KEYS }}
+          GEMINI_API_KEYS_PLUS: ${{ secrets.GEMINI_API_KEYS_PLUS }}
+          GEMINI_API_KEYS_PARTAGE: ${{ secrets.GEMINI_API_KEYS_PARTAGE }}
+          GROQ_API_KEYS: ${{ secrets.GROQ_API_KEYS }}
+          GROQ_API_KEYS_PLUS: ${{ secrets.GROQ_API_KEYS_PLUS }}
+          CEREBRAS_API_KEYS: ${{ secrets.CEREBRAS_API_KEYS }}
+          OPENROUTER_API_KEYS: ${{ secrets.OPENROUTER_API_KEYS }}
+          FALLBACK_LLM_KEYS: ${{ secrets.FALLBACK_LLM_KEYS }}
+          YOUTUBE_API_KEYS: ${{ secrets.YOUTUBE_API_KEYS }}
+          YOUTUBE_API_KEYS_PLUS: ${{ secrets.YOUTUBE_API_KEYS_PLUS }}
+          GUARDIAN_API_KEYS: ${{ secrets.GUARDIAN_API_KEYS }}
+          NYT_API_KEYS: ${{ secrets.NYT_API_KEYS }}
+          TG_API_ID: ${{ secrets.TG_API_ID }}
+          TG_API_HASH: ${{ secrets.TG_API_HASH }}
+          TG_SESSION: ${{ secrets.TG_SESSION }}
+          RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
+          CHAINE_GH_TOKEN: ${{ steps.chaine_tok.outputs.token || secrets.CHAINE_TOKEN }}
+        run: python3 scripts/diagnostic.py
