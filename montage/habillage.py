@@ -16,7 +16,8 @@ NUM = re.compile(r"(?<![\w])(\d{1,3}(?:[  .]\d{3})+|\d+(?:[.,]\d+)?)\s*(%|pour ?
 
 PROMPT = """Tu prépares des cartes de citation pour le montage d'une vidéo YouTube d'information (langue « {lang} »).
 Voici des phrases dites par l'auteur, transcrites automatiquement (des noms propres ou des mots peuvent être mal
-écrits). Pour CHAQUE phrase qui peut faire une citation forte et compréhensible seule, donne une version courte
+écrits). Il en faut BEAUCOUP (au moins {want}) : pour chaque phrase qui peut faire une citation compréhensible seule,
+donne une version courte
 (6 à 16 mots), fidèle (même sens, mêmes mots autant que possible, aucun ajout), avec l'orthographe et les noms propres
 corrigés. Ignore les phrases vagues, incomplètes ou incompréhensibles.
 
@@ -27,13 +28,18 @@ Réponds en JSON : {{"quotes": [{{"i": numéro, "q": "citation courte"}}]}}"""
 
 
 def _num(text: str) -> str | None:
-    """Le chiffre clé d'une phrase (avec son unité), ou None. Les années seules (1981, 2017) ne comptent pas."""
-    for m in NUM.finditer(text or ""):
+    """Le chiffre clé d'une phrase (avec son unité), ou None. Jamais une année seule (1981, 2017, « en 81 ») ni un
+    nombre nu sans unité ; « 4 promesses sur 10 » → « 4 sur 10 »."""
+    t = text or ""
+    m = re.search(r"(?<![\w])(\d{1,3})\s+(?:[a-zà-ÿ]+\s+){0,2}sur\s+(\d{1,3})(?![\w])", t, re.I)
+    if m:
+        return f"{m.group(1)} sur {m.group(2)}"
+    for m in NUM.finditer(t):
         n, unit = m.group(1), (m.group(2) or "").strip()
         digits = re.sub(r"\D", "", n)
-        if not digits or (len(digits) == 4 and digits.startswith(("19", "20")) and not unit):
+        if not digits or not unit:          # nombre nu (« 81 », « 10 ») : jamais seul sur une carte
             continue
-        if len(digits) == 1 and not unit:
+        if len(digits) == 4 and digits.startswith(("19", "20")) and unit.lower() in ("ans", "années"):
             continue
         return f"{n} {unit}".strip()
     return None
@@ -48,7 +54,8 @@ def clean_quotes(ai, sents: list, lang: str) -> dict:
         return {}
     txt = "\n".join(f"[{i}] {t[:300]}" for i, t in cand[:260])
     try:
-        j = ai.json(PROMPT.format(lang=lang, phrases=txt))
+        speech = max(60.0, sents[-1]["t1"] - sents[0]["t0"])
+        j = ai.json(PROMPT.format(lang=lang, phrases=txt, want=min(len(cand), max(12, int(speech / 14)))))
     except Exception as e:  # noqa: BLE001
         log.warning("habillage : citations indisponibles (%s) → chiffres clés seulement", e)
         return {}
@@ -84,14 +91,13 @@ def make_ambient(sents: list, quotes: dict, chapters: list, render, lang: str):
     def ambient(idx: list):
         for i in idx:                       # 1) chiffre clé prononcé
             n = _num(sents[i]["text"])
-            if n and ("n", n) not in used:
+            if n and ("n", n) not in used and quotes.get(i):   # jamais un chiffre sans sa phrase (contexte)
                 used.add(("n", n))
-                lab = quotes.get(i) or ""          # jamais la transcription brute (noms mal écrits possibles)
+                lab = quotes[i]                    # phrase corrigée (jamais la transcription brute)
                 count[0] += 1
-                asset = render("figure", {"text": n, "label": (lab or chapter_at(chapters, i))[:90],
-                                         "sublabel": chapter_at(chapters, i) if lab else ""},
+                asset = render("figure", {"text": n, "label": lab[:90], "sublabel": chapter_at(chapters, i)},
                                f"amb{count[0]:03d}")
-                return {"kind": "figure", "s0": idx[0], "s1": idx[-1], "label": f"chiffre clé : {n}",
+                return {"kind": "figure", "s0": idx[0], "s1": idx[-1], "label": n,
                         "source": "ta phrase (habillage)", "asset": asset, "ambient": True} if asset else None
         for i in idx:                       # 2) ta phrase forte, corrigée
             qt = quotes.get(i)

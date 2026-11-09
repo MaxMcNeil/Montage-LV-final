@@ -631,7 +631,12 @@ def main(argv=None) -> int:
     ctx = Ctx(Path(vsrc).resolve(), vinfo, face, orient, work.resolve(), ass_path, fonts)
     # DÉCOR (chaîne depuis le fond vert) : logo de la chaîne qui tourne lentement derrière toi dans les plans pleins
     fond_in = Path("input") / f"fond-{orient_in}.jpg"
-    if opts.get("decor") != "non" and fond_in.exists():
+    # seulement quand le format monté = format de ta vidéo : une vidéo verticale montée en horizontal (ou l'inverse)
+    # ne garderait qu'un morceau du logo, coupé à côté de ta tête
+    if opts.get("decor") != "non" and fond_in.exists() and orient != orient_in:
+        brand.setdefault("notes", []).append("ℹ logo derrière toi non appliqué : ta vidéo change de format au montage "
+                                             "(le logo serait coupé)")
+    elif opts.get("decor") != "non" and fond_in.exists():
         try:
             from .decor import build as decor_build
             ctx.decor, d_note = decor_build(fond_in, brand.get("end_src"), Path(vsrc), vinfo, face, work)
@@ -904,7 +909,7 @@ def _vertical_version(segs, sub_fn, brand, aud, vsrc, vinfo, face, work, outd, f
         wv = (work / "vertical").resolve()
         wv.mkdir(parents=True, exist_ok=True)
         ctx_v = Ctx(Path(vsrc).resolve(), vinfo, face, "v", wv, ass_v, fonts)
-        ctx_v.decor = decor
+        ctx_v.decor = None   # version verticale (Shorts) : le logo serait coupé au bord → sans décor
         vid_v = render_video(segs, ctx_v, wv / "video_v.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
         tag = ""
         if bv and bv.get("bug") and len(R.BRAND_FAILS) < len(segs):
