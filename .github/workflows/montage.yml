@@ -163,10 +163,10 @@ jobs:
       CHAINE_ID: ${{ github.event.client_payload.chaine_id }}
       MONTAGE_CHAINE_SHORTS: ${{ inputs.chaine_shorts }}   # verrou : en chaîne, jamais de sous-titres dans la vidéo montée
       CHAINE_VIDEO_ID: ${{ github.event.client_payload.video_id }}
-      CHAINE_FINDER: ${{ github.event.client_payload.finder }}
+      CHAINE_FINDER: ${{ (github.event.client_payload.opts.finder || github.event.client_payload.finder) }}
       CHAINE_JOINTS: ${{ github.event.client_payload.joints }}
       CHAINE_ORIGINE: ${{ github.event.client_payload.origine }}
-      CHAINE_RECHERCHE: ${{ github.event.client_payload.recherche }}   # légère (défaut) / non — choix fait dans le fond vert
+      CHAINE_RECHERCHE: ${{ (github.event.client_payload.opts.recherche || github.event.client_payload.recherche) }}   # légère (défaut) / non — choix fait dans le fond vert
     steps:
       - name: Début du job (le montage règle ses recherches sur le temps restant)
         run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
@@ -320,10 +320,10 @@ jobs:
       # 🌀 Chaîne depuis le fond vert : l'image de fond posée derrière toi (pour faire tourner le logo DERRIÈRE toi).
       # Absente ou illisible → montage normal, sans logo derrière toi. Jamais bloquant.
       - name: Chaîne — image de fond du fond vert (logo derrière toi)
-        if: steps.fetch.outputs.skip != '1' && github.event.client_payload.fond_dir != ''
+        if: steps.fetch.outputs.skip != '1' && (github.event.client_payload.opts.fond_dir || github.event.client_payload.fond_dir) != ''
         continue-on-error: true
         env:
-          FOND_DIR: ${{ github.event.client_payload.fond_dir }}
+          FOND_DIR: ${{ (github.event.client_payload.opts.fond_dir || github.event.client_payload.fond_dir) }}
         run: |
           command -v rclone >/dev/null && [ -s ~/.config/rclone/rclone.conf ] || { echo "rclone indisponible : sans décor"; exit 0; }
           R=$(grep -m1 -oE '^\[[^]]+\]' ~/.config/rclone/rclone.conf | tr -d '[]')
@@ -377,7 +377,7 @@ jobs:
           MONTAGE_CHAINE: ${{ inputs.chaine }}
           MONTAGE_VOIX_STUDIO: ${{ inputs.voix_studio || github.event.client_payload.voix_studio }}
           MONTAGE_VERSION_VERTICALE: ${{ inputs.version_verticale || 'auto' }}
-          MONTAGE_FORMAT: ${{ inputs.format_sortie || github.event.client_payload.format_sortie || 'auto' }}
+          MONTAGE_FORMAT: ${{ inputs.format_sortie || (github.event.client_payload.opts.format_sortie || github.event.client_payload.format_sortie) || 'auto' }}
           MONTAGE_RECHERCHE_PRESSE: ${{ inputs.recherche_presse }}
         run: |
           mkdir -p fonts state
