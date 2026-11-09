@@ -118,6 +118,7 @@ def main(argv=None) -> int:
     # format de sortie : auto = identique à ta vidéo ; horizontal / vertical = forcé (cartes, animations, inserts : les
     # mêmes, simplement dans le format choisi). Vertical → horizontal : toi au centre, sur ton fond flouté sobre.
     orient = opts["format"] if opts.get("format") in ("h", "v") else orient_in
+    info["out_orient"] = orient          # pour le rapport (PLAN.md) : format de la vidéo MONTÉE
     log.info("Vidéo : %dx%d, %.0f s, %s → montage %s%s", info["w"], info["h"], info["duration"],
              "verticale" if orient_in == "v" else "horizontale", "vertical" if orient == "v" else "horizontal",
              " (format forcé)" if orient != orient_in else "")
@@ -1353,7 +1354,10 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                  ("**Contrôle qualité : ⚠ à vérifier** — " + " · ".join(bad)))
         L.append("")
     L.append(f"- Durée : {tc(info['duration'])} déposée → **{tc(total)}** montée "
-             f"(silences : {opts['couper_silences']}) · langue : {lang} · format : {info['w']}x{info['h']}")
+             f"(silences : {opts['couper_silences']}) · langue : {lang} · format : {info['w']}x{info['h']}"
+             + ("" if info.get("out_orient", "v" if info["h"] > info["w"] * 1.05 else "h")
+                == ("v" if info["h"] > info["w"] * 1.05 else "h")
+                else f" → montée en {'1080x1920 (vertical forcé)' if info['out_orient'] == 'v' else '1920x1080 (horizontal forcé)'}"))
     if pause_stats and pause_stats.get("cuts"):
         L.append(f"- Silences de plus de 2 s : {pause_stats['cuts']} raccourci(s), {pause_stats['gagne']:.0f} s gagnées — "
                  f"{pause_stats['zoom']} changement(s) de plan (tu n'avais pas bougé), {pause_stats['fondu']} fondu(s) "
@@ -1513,7 +1517,7 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
                     "article": "Article de presse", "figure": "Chiffre clé", "quote": "Citation",
                     "attachment": "Ta photo", "statement": "Déclaration (carte)", "outro": "Carte de fin"}.get(v["kind"], v["kind"])
             lab = v.get("text") or v.get("label") or ""
-            side = ("à droite de toi" if s.side == "left" else "à gauche de toi") if info["w"] >= info["h"] else "sous toi"
+            side = ("à droite de toi" if s.side == "left" else "à gauche de toi") if info.get("out_orient", "h" if info["w"] >= info["h"] else "v") == "h" else "sous toi"
             said = sents[v["s0"]]["text"][:110] if v["s0"] < len(sents) else ""
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | {what} : {lab} | {side} | « {said} » | {v.get('source', '—')} |")
         elif s.kind == "insert":
