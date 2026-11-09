@@ -13,7 +13,7 @@ DOSSIER="${DOSSIER:-montage-joints}"
 OUT="out-medias"; mkdir -p "$OUT"
 SUM="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 UA="Mozilla/5.0 (X11; Linux x86_64) JournalDuNON-medias/1.0"
-OK=0; KO=0; : > sources.tsv; : > echecs.txt
+OK=0; KO=0; : > sources.tsv; : > echecs.txt; : > a-telecharger.txt   # a-telecharger : vidéos refusées à GitHub (pour ton téléphone)
 
 garde() { [ "$SUJETS" = all ] && return 0; [[ ",${SUJETS// /}," == *",$1,"* ]]; }
 taille() { stat -c%s "$1" 2>/dev/null || echo 0; }
@@ -59,7 +59,8 @@ video() { # nom url-ou-recherche durée_max
   [ -s "$f" ] || "${base[@]}" "${px[@]}" --extractor-args "youtube:player_client=tv,android,web_safari" "$cible" >/dev/null 2>&1
   [ -s "$f" ] || { [ ${#px[@]} -gt 0 ] && "${base[@]}" "$cible" >/dev/null 2>&1; }
   if [ -s "$f" ]; then bon "$1.mp4" "vidéo" "$(cat "$f.url" 2>/dev/null)"
-  else rm -f "$f"*; rate "vidéo $1 non téléchargée (YouTube a peut-être bloqué GitHub) : $2"; fi
+  else rm -f "$f"*; rate "vidéo $1 non téléchargée (YouTube a peut-être bloqué GitHub) : $2"
+       printf '%s | %s | %s\n' "$1" "$2" "${3:-900}" >> a-telecharger.txt; fi
   rm -f "$f.url"
 }
 
@@ -89,6 +90,8 @@ if [ "$N" -gt 0 ]; then
     || { echo "::error::copie vers Google Drive ($DEST) échouée"; exit 1; }
   rclone copy sources.tsv "$REMOTE:sources-medias" -q 2>/dev/null || true   # HORS montage-joints
 fi
+# vidéos refusées à GitHub : liste pour ton téléphone (Termux : bash tel_videos.sh) — remplacée à chaque lancement
+rclone copyto a-telecharger.txt "$REMOTE:sources-medias/a-telecharger.txt" -q 2>/dev/null || true
 
 {
   echo "## 📥 Médias du live → Drive « $DOSSIER »"
@@ -96,6 +99,10 @@ fi
   echo; echo "| Fichier | Type | Source |"; echo "|---|---|---|"
   awk -F'\t' '{printf "| %s | %s | %s |\n",$1,$2,$3}' sources.tsv
   if [ -s echecs.txt ]; then echo; echo "### ⚠ À compléter"; sed 's/^/- /' echecs.txt; fi
+  if [ -s a-telecharger.txt ]; then
+    echo; echo "📱 **$(wc -l < a-telecharger.txt) vidéo(s) refusée(s) à GitHub** : sur ton téléphone (Termux), lance"
+    echo "\`bash tel_videos.sh\` — elles arrivent dans « $DOSSIER » toutes seules."
+  fi
   echo; echo "Liste des sources aussi copiée dans Drive « sources-medias » (jamais dans montage-joints)."
 } >> "$SUM"
-[ "$OK" -gt 0 ] || { echo "::error::aucun média récupéré"; exit 1; }
+[ "$OK" -gt 0 ] || [ -s a-telecharger.txt ] || { echo "::error::aucun média récupéré"; exit 1; }
