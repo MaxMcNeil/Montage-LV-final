@@ -95,7 +95,7 @@ def clashes(clip: tuple, used: list) -> bool:
 
 def passage_label(ai, x: dict, a: float, b: float, lang: str, work: Path, fallback: str) -> str:
     """Légende propre au passage [a, b] de la vidéo jointe x (image du milieu du passage + ce qui y est dit)."""
-    if not ai or not ai.ok:
+    if not ai or not ai.ok or x.get("label_sure"):   # sujet écrit dans ton nom de fichier : jamais remplacé
         return fallback
     from .assets import _jpeg_bytes
     from .keywords import _sents_in

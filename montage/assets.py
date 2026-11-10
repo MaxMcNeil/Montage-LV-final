@@ -47,6 +47,55 @@ def _jpeg_bytes(img, max_side=1024) -> bytes:
     return b.getvalue()
 
 
+_CONV = re.compile(r"^(?:\d{2}_)?[pva]\d{2,4}[_-](.+)$", re.I)
+
+
+def _subject_words(filename: str) -> list[str]:
+    """Sujet écrit dans ton nom de fichier (« 22_v103_chirac_1995_fracture_sociale.mp4 » → chirac 1995 fracture
+    sociale) ; [] si le nom ne suit pas la convention p/v/a + numéro (nom d'appareil, de téléchargement…)."""
+    m = _CONV.match(filename.rsplit(".", 1)[0])
+    if not m:
+        return []
+    t = re.sub(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ", m.group(1))
+    return [w for w in re.split(r"[_\-\s]+", t) if w]
+
+
+def subject_labels(ai, att: list, lang: str) -> None:
+    """Légende = le SUJET de ton nom de fichier, simplement mis en forme (majuscules, accents) par l'IA en UNE seule
+    demande pour tous les fichiers, et vérifiée mot à mot : rien d'ajouté, rien d'inventé (jamais « un enfant », « son
+    lapin »…). Sans IA ou réponse douteuse : le nom de fichier lui-même, proprement écrit."""
+    import unicodedata as _u
+    n = lambda t: _u.normalize("NFKD", t).encode("ascii", "ignore").decode().lower()  # noqa: E731
+    todo = [(a, _subject_words(a["name"])) for a in att if len(_subject_words(a["name"])) >= 1]
+    if not todo:
+        return
+    out = {}
+    if ai and getattr(ai, "ok", False):
+        lst = "\n".join(f"[{k}] {' '.join(w)}" for k, (_, w) in enumerate(todo))
+        try:
+            j = ai.json(f"Mets en forme chaque sujet en courte légende (langue « {lang} ») : majuscules aux noms propres, "
+                        f"accents, petits mots de liaison (de, à, la, :) si besoin. N'AJOUTE AUCUNE information, aucun "
+                        f"prénom, aucun détail. Ex : « mitterrand 10 mai 1981 victoire » → « Mitterrand, 10 mai 1981 : "
+                        f"la victoire ».\n{lst}\nRéponds en JSON : {{\"labels\": [{{\"n\": 0, \"l\": \"…\"}}]}}")
+            for x in ((j or {}).get("labels") or []) if isinstance(j, dict) else []:
+                if isinstance(x, dict) and str(x.get("n", "")).isdigit():
+                    out[int(x["n"])] = " ".join(str(x.get("l") or "").split())[:70]
+        except Exception as e:  # noqa: BLE001
+            log.warning("légendes depuis les noms de fichiers : %s", e)
+    stop = {"de", "du", "des", "la", "le", "les", "l", "d", "a", "au", "aux", "et", "en", "sur", "un", "une"}
+    for k, (a, words) in enumerate(todo):
+        lab = out.get(k, "")
+        need = {n(w) for w in words}
+        got = set(re.findall(r"[a-z0-9]+", n(lab)))
+        extra = got - need - stop
+        if not lab or not need <= got or len(extra) > 0:
+            person = bool(re.match(r"^(?:\d{2}_)?p\d", a["name"], re.I))       # p… = une personne : « Le Pen »
+            pretty = " ".join((w[:1].upper() + w[1:]) if person else w for w in words)
+            lab = pretty[:1].upper() + pretty[1:]
+        a["label"] = lab[:70]
+        a["label_sure"] = True   # sujet de TON nom de fichier : prioritaire partout (photos, extraits)
+
+
 def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
     """Décrit chaque pièce jointe (IA qui regarde l'image) ; transcrit les vidéos jointes."""
     from .panels import open_image
@@ -110,6 +159,7 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                     a["head_skip"] = min(a.get("duration", 0) * 0.25, 15.0)
                     log.info("vidéo jointe %s : générique au début → passé (%.0f s)", a["name"], a["head_skip"])
     att[:] = [a for a in att if not a.get("broken")]
+    subject_labels(ai, att, lang)   # légende = le sujet écrit dans ton nom de fichier (jamais un détail de l'image)
 
 
 # ------------------------------------------------------------------ Wikimedia Commons (photos libres)

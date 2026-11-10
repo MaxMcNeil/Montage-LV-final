@@ -202,7 +202,9 @@ def main(argv=None) -> int:
     try:
         from .pertinence import fix_inserts, fix_visuals
         p_notes: list = []
+        from .pertinence import link_photos_to_videos
         n_mv = fix_visuals(plan["visuals"], by_id, sents, p_notes) + fix_inserts(plan["inserts"], by_id, sents, p_notes)
+        n_mv += link_photos_to_videos(plan["visuals"], plan["inserts"], by_id, sents, p_notes)
         if n_mv:
             log.info("Pertinence : %d pièce(s) jointe(s) replacée(s) là où tu en parles", n_mv)
             brand.setdefault("notes", []).extend("🎯 " + x for x in p_notes)
@@ -215,7 +217,8 @@ def main(argv=None) -> int:
             if kind == "attachment":
                 x = by_id[v["attachment"]]
                 data["image"] = open_image(x["path"])
-                data["label"] = data["label"] or x.get("label", "") or _pretty(x["name"])
+                data["label"] = (x["label"] if x.get("label_sure") else data["label"]) or x.get("label", "") \
+                    or _pretty(x["name"])
                 v["label"] = data["label"]
                 data["contain"] = x.get("contain")
                 v["source"] = f"pièce jointe « {x['name']} »"
