@@ -65,11 +65,14 @@ def _window(sents: list, i: int, before: int, after: int) -> set:
     return w
 
 
-def best_place(keys: set, sents: list, cur: int, idf: dict, before: int, after: int) -> tuple[int, float, float]:
-    """(meilleure phrase, son score, score de l'endroit actuel)."""
+def best_place(keys: set, sents: list, cur: int, idf: dict, before: int, after: int,
+               avoid: set | None = None) -> tuple[int, float, float]:
+    """(meilleure phrase, son score, score de l'endroit actuel). avoid : phrases déjà prises par un autre extrait."""
     cur_s = _score(keys, _window(sents, cur, before, after), idf) if 0 <= cur < len(sents) else 0.0
     best_i, best_s = cur, cur_s
     for i in range(len(sents)):
+        if avoid and i in avoid:
+            continue
         sc = _score(keys, _window(sents, i, before, after), idf)
         # à score égal, la plus proche de l'endroit proposé par l'IA
         if sc > best_s + 1e-9 or (abs(sc - best_s) < 1e-9 and sc > 0 and abs(i - cur) < abs(best_i - cur)):
@@ -124,7 +127,8 @@ def fix_inserts(inserts: list, by_id: dict, sents: list, notes: list) -> int:
         if not keys:
             continue
         cur = int(ins.get("after") if ins.get("after") is not None else -1)
-        bi, bs, cs = best_place(keys, sents, cur, idf, 2, 0)
+        taken = {int(o["after"]) for o in inserts if o is not ins and o.get("after") is not None}
+        bi, bs, cs = best_place(keys, sents, cur, idf, 2, 0, avoid=taken)
         if bi != cur and _moved(bs, cs):
             ins["after"] = bi
             n += 1

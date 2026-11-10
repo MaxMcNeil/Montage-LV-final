@@ -232,6 +232,12 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
             if t is not None:
                 log.info("vidéo jointe : aucun vrai silence autour de la phrase %d → placée dans le petit blanc entre "
                          "deux mots à %.2f s (ta phrase n'est pas coupée)", a, t)
+        if t is not None and any(abs(t - p["t"]) < 3.0 for p in pts):
+            # même endroit qu'un autre extrait : JAMAIS deux extraits au même instant (l'un serait perdu sans bruit)
+            t2 = any_gap(words, sents, keep, a, [p["t"] for p in pts], env=env) if ins.get("attachment") else None
+            log.info("extrait après la phrase %d : endroit déjà pris par un autre extrait → %s", a,
+                     f"placé à {t2:.2f} s" if t2 is not None else "non inséré")
+            t = t2
         if t is None:
             log.warning("pas de vrai silence sûr autour de la phrase %d : extrait non inséré (pour ne pas te couper)", a)
             ins["refused"] = True
@@ -401,12 +407,19 @@ def schedule(words, sents, keep, visuals, inserts, chapters, total_src, opts, or
         at.layout = next((i for i, c in enumerate(chosen) if c["st"] <= mid < c["en"]), None)
     # 4) segments
     segs: list[Segment] = []
-    ins_at = {p["t"]: p for p in pts}
+    ins_at = {}
+    for p in pts:   # filet de sécurité : deux extraits au même instant → le second juste après (jamais perdu)
+        tt = p["t"]
+        while tt in ins_at:
+            tt += 1e-6
+        ins_at[tt] = p
+    if len(ins_at) != len({p["t"] for p in pts}):
+        log.warning("deux extraits prévus au même instant : enchaînés l'un après l'autre")
     cur = None
     for at in atoms:
         if ins_at and cur is not None and at.a in ins_at and cur.kind != "insert":
-            p = ins_at.pop(at.a)
-            segs.append(Segment("insert", insert=p))
+            for k_ in sorted(k for k in ins_at if abs(k - at.a) < 1e-4):   # (et son « jumeau » éventuel, à la suite)
+                segs.append(Segment("insert", insert=ins_at.pop(k_)))
             cur = None
         kind = "full" if at.layout is None else "split"
         if cur is None or cur.kind != kind or (kind == "split" and cur.atoms[-1].layout != at.layout):
