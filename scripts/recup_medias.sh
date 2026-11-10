@@ -31,16 +31,26 @@ photo() { # nom "lang:Titre_Wikipedia"
   else rm -f "$f.src" "$f"; rate "photo $1 ($2) introuvable"; fi
 }
 
-# capture = page d'erreur ? (« Sorry, you have been blocked », 403, 404, captcha…) — lu sur l'image, sans IA
+# capture ratée ? lu sur l'image, sans IA : page d'erreur (« Sorry, you have been blocked », 403, 404, captcha…)
+# OU fenêtre de cookies / consentement par-dessus l'article (« Accepter & Fermer », « Nous veillons à… »)
 page_erreur() {
   command -v tesseract >/dev/null || return 1
   local t; t=$(tesseract "$1" - 2>/dev/null)
-  echo "$t" | grep -qiE "you have been blocked|access denied|acc[eè]s refus|attention required|verify you are (a )?human|are you a robot|captcha|cloudflare ray id|403 forbidden|error 40[34]|erreur 40[34]|page not found|page introuvable|enable javascript and cookies|just a moment|unusual traffic" \
-    && [ "$(echo "$t" | wc -c)" -lt 1500 ]
+  if echo "$t" | grep -qiE "you have been blocked|access denied|acc[eè]s refus|attention required|verify you are (a )?human|are you a robot|captcha|cloudflare ray id|403 forbidden|error 40[34]|erreur 40[34]|page not found|page introuvable|enable javascript and cookies|just a moment|unusual traffic" \
+     && [ "$(echo "$t" | wc -c)" -lt 1500 ]; then return 0; fi
+  # fenêtre de consentement : au moins 2 de ses formules typiques (un article qui parle de cookies n'est pas rejeté)
+  # (formules tolérantes : la lecture de l'image fait parfois des fautes ; il en faut au moins 3 différentes)
+  [ "$(echo "$t" | tr 'A-Z' 'a-z' | grep -oE "ookie|opkie|protection|donn.{1,2}es|accep|accop|scept|refus|retut|partenaires|consent|vos choix|param[eé]tr|continuer sans|traceurs|veill|veil|un compte" | sed -E 's/accop|scept/accep/; s/retut/refus/; s/veill/veil/; s/opkie/ookie/; s/donn.{1,2}es/donnees/' | sort -u | wc -l)" -ge 3 ]
 }
 
 article() { # nom url
   local f="$OUT/$1.jpg" enc i ct bloque=""
+  # 1) vrai navigateur : ferme la fenêtre des cookies avant la photo (le plus propre)
+  if python3 -c "import playwright" 2>/dev/null && timeout 120 python3 scripts/capture_article.py "$2" "$f" >/dev/null 2>&1 \
+     && [ "$(taille "$f")" -gt 30000 ]; then
+    if page_erreur "$f"; then bloque=1; else bon "$1.jpg" "capture article" "$2"; return; fi
+  fi
+  # 2) services de capture en ligne (sans navigateur)
   enc=$(jq -rn --arg u "$2" '$u|@uri')
   for i in 1 2 3 4 5 6 7 8; do   # la capture est générée en quelques secondes
     ct=$(curl -sL -A "$UA" -o "$f" -w '%{content_type}' "https://s0.wp.com/mshots/v1/$enc?w=1280&h=1500" || true)
@@ -56,7 +66,7 @@ article() { # nom url
     else bon "$1.jpg" "capture article" "$2"; return; fi
   fi
   rm -f "$f"
-  if [ -n "$bloque" ]; then rate "article $1 : le site bloque les captures (page d'erreur, jamais déposée) — fais la capture toi-même sur ton téléphone : $2"
+  if [ -n "$bloque" ]; then rate "article $1 : capture refusée (site qui bloque, ou fenêtre de cookies impossible à fermer : jamais déposée) — fais la capture toi-même sur ton téléphone : $2"
   else rate "article $1 : capture impossible ($2)"; fi
 }
 

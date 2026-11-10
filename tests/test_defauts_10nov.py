@@ -42,3 +42,23 @@ def test_carte_titre_sautee(tmp_path):
                     "[0][1]concat=n=2:v=1:a=0,format=yuv420p", str(v)], check=True)
     head, tail = static_edges(str(v), 25.0)
     assert 4.5 < head < 6.0 and tail == 25.0
+
+
+@pytest.mark.parametrize("img,refus", [("data_cookies_publicsenat.png", True), ("data_cookies_euronews.png", True),
+                                       ("data_capture_bloquee.png", True), ("data_article_sur_cookies.png", False)])
+def test_captures_cookies_ou_erreur(img, refus):
+    if not shutil.which("tesseract"):
+        pytest.skip("tesseract absent")
+    from montage.assets import error_page
+    assert bool(error_page(str(HERE / img))) is refus
+
+
+def test_meme_regle_dans_preparer_les_medias():
+    if not shutil.which("tesseract"):
+        pytest.skip("tesseract absent")
+    root = HERE.parent
+    for img, refus in (("data_cookies_publicsenat.png", True), ("data_cookies_euronews.png", True),
+                       ("data_article_sur_cookies.png", False)):
+        r = subprocess.run(["bash", "-c", f"source <(sed -n '/^page_erreur()/,/^}}/p' {root}/scripts/recup_medias.sh); "
+                           f"page_erreur {HERE / img}"])
+        assert (r.returncode == 0) is refus, img

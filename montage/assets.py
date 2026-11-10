@@ -66,7 +66,16 @@ def error_page(path: str) -> str:
         hits = BLOCKED_RE.findall(txt)
         m = BLOCKED_RE.search(txt)
         # une page d'erreur est courte ; un VRAI article qui parle de « captcha » est long : jamais rejeté pour ça
-        return m.group(0) if m and (len(txt) < 1500 or len(hits) >= 2) else ""
+        if m and (len(txt) < 1500 or len(hits) >= 2):
+            return m.group(0)
+        # fenêtre de cookies / consentement par-dessus l'article : au moins 3 de ses formules (lecture tolérante)
+        low = txt.lower()
+        keys = {"ookie": r"o[op]kie", "protection": r"protection", "donnees": r"donn.{1,2}es",
+                "accep": r"accep|accop|scept", "refus": r"refus|retut", "partenaires": r"partenaires",
+                "consent": r"consent", "choix": r"vos choix", "param": r"param.{1,2}tr", "sans": r"continuer sans",
+                "traceurs": r"traceurs", "veil": r"veil", "compte": r"un compte"}
+        found = [k for k, rx in keys.items() if re.search(rx, low)]
+        return "fenêtre de cookies" if len(found) >= 3 else ""
     except Exception:  # noqa: BLE001
         return ""
 

@@ -22,7 +22,9 @@ def test_num():
 def test_ambient_couvre_la_plupart_du_temps(tmp_path):
     sents, words = _sents()
     made = []
-    amb = make_ambient(sents, {i: f"citation {i} forte et claire" for i in range(len(sents))}, [{"s": 0, "title": "Intro"}],
+    q = {i: f"citation {i} forte et claire" for i in range(len(sents))}
+    q[7] = "Une amende de 105 000 euros"               # le chiffre vient de la phrase CORRIGÉE
+    amb = make_ambient(sents, q, [{"s": 0, "title": "Intro"}],
                        lambda k, d, n: made.append((k, d)) or {"frame": "x"}, "fr")
     keep = [(0.0, sents[-1]["t1"] + 1)]
     opts = {"fin": "non", "couper_silences": "non"}
@@ -32,3 +34,13 @@ def test_ambient_couvre_la_plupart_du_temps(tmp_path):
     assert any(k == "figure" for k, _ in made)          # le chiffre prononcé devient un chiffre clé
     segs2, chosen2 = schedule(words, sents, keep, [], [], [], keep[0][1], opts, "h")
     assert not any(c.get("ambient") for c in chosen2)    # sans habillage : comme avant
+
+
+def test_chiffre_jamais_mal_entendu():
+    from montage.habillage import make_ambient
+    sents = [{"i": 0, "t0": 0, "t1": 4, "text": "et l'histoire des 105 500 euros d'amende"}]   # transcription fausse
+    made = []
+    amb = make_ambient(sents, {0: "L'histoire des 105 000 euros d'amende"}, [], lambda k, d, n: made.append(d) or {"f": 1},
+                       "fr")
+    v = amb([0])
+    assert v and made[0]["text"] == "105 000 euros"

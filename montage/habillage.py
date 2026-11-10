@@ -29,20 +29,26 @@ Réponds en JSON : {{"quotes": [{{"i": numéro, "q": "citation courte"}}]}}"""
 
 def _num(text: str) -> str | None:
     """Le chiffre clé d'une phrase (avec son unité), ou None. Jamais une année seule (1981, 2017, « en 81 ») ni un
-    nombre nu sans unité ; « 4 promesses sur 10 » → « 4 sur 10 »."""
+    nombre nu sans unité ; « 4 promesses sur 10 » → « 4 sur 10 ». Plusieurs chiffres : le plus parlant d'abord
+    (%, euros, milliards… avant « 2 ans »)."""
     t = text or ""
+    cands = []
     m = re.search(r"(?<![\w])(\d{1,3})\s+(?:[a-zà-ÿ]+\s+){0,2}sur\s+(\d{1,3})(?![\w])", t, re.I)
     if m:
-        return f"{m.group(1)} sur {m.group(2)}"
+        cands.append((1, f"{m.group(1)} sur {m.group(2)}"))
     for m in NUM.finditer(t):
         n, unit = m.group(1), (m.group(2) or "").strip()
         digits = re.sub(r"\D", "", n)
         if not digits or not unit:          # nombre nu (« 81 », « 10 ») : jamais seul sur une carte
             continue
-        if len(digits) == 4 and digits.startswith(("19", "20")) and unit.lower() in ("ans", "années"):
+        u = unit.lower()
+        if len(digits) == 4 and digits.startswith(("19", "20")) and u in ("ans", "années"):
             continue
-        return f"{n} {unit}".strip()
-    return None
+        rank = 0 if u in ("%", "pour cent", "pourcent") else 1 if u in ("€", "euros", "euro", "dollars", "dollar", "$") \
+            else 2 if u in ("milliards", "milliard", "millions", "million", "mille") else 4 if u in ("ans", "années", "fois") \
+            else 3
+        cands.append((rank, f"{n} {unit}".strip()))
+    return min(cands)[1] if cands else None
 
 
 def clean_quotes(ai, sents: list, lang: str) -> dict:
@@ -90,8 +96,11 @@ def make_ambient(sents: list, quotes: dict, chapters: list, render, lang: str):
 
     def ambient(idx: list):
         for i in idx:                       # 1) chiffre clé prononcé
-            n = _num(sents[i]["text"])
-            if n and ("n", n) not in used and quotes.get(i):   # jamais un chiffre sans sa phrase (contexte)
+            # le chiffre vient de ta phrase CORRIGÉE (la transcription peut entendre « 105 500 » pour « 105 000 »)
+            n = _num(quotes.get(i, "")) if quotes.get(i) else None
+            if n and _num(sents[i]["text"]) is None:   # présent dans la version corrigée mais pas dans ta phrase : douteux
+                n = None
+            if n and ("n", n) not in used:           # jamais un chiffre sans sa phrase (contexte)
                 used.add(("n", n))
                 lab = quotes[i]                    # phrase corrigée (jamais la transcription brute)
                 count[0] += 1
