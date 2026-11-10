@@ -9,10 +9,28 @@
 #     - écrit pour le job suivant : video_url ou video_id, video_nom, joints (fichiers pris dans montage-joints).
 #   chaine_suite.sh lancer   (job séparé « 🔗 Chaîne — lancer les Shorts » : un échec ne refait QUE ce lancement)
 #     - lance Video to Shorts dans Push-overlay, PUIS retire de montage-joints les fichiers utilisés
-#       (corbeille Drive : récupérables 30 jours). Si le lancement échoue, montage-joints reste intact.
+#       (rangés dans Drive « montage-joints-utilises », 10 jours). Si le lancement échoue, montage-joints reste intact.
 # Variables : CHAINE_ID, BASE, RCLONE_CONF, CHAINE_JOINTS, CHAINE_GH_TOKEN, REPO, GH_TOKEN (github.token),
 #             VIDEO_URL / VIDEO_ID / VIDEO_NOM / JOINTS_B64 (mode lancer)
 set -uo pipefail
+
+# Pièces jointes utilisées : RANGÉES (jamais à la corbeille) dans montage-joints-utilises/<date>-<id>, pour pouvoir
+# relancer le même montage sans rien restaurer (option « reprendre »). Rangements de plus de 10 jours : supprimés.
+ranger_joints() { # remote dossier liste id
+  local R="$1" D="$2" L="$3" ST
+  ST="$(date -u +%Y%m%d-%H%M)-$(printf '%s' "$4" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-40)"
+  rclone move "$R:$D" "$R:montage-joints-utilises/$ST" --files-from "$L" -q || return 1
+  printf '%s\n' "$ST" > /tmp/dernier-rangement.txt
+  rclone copyto /tmp/dernier-rangement.txt "$R:montage-joints-utilises/dernier.txt" -q || true
+  # ménage : rangements de plus de 10 jours, d'après la DATE DU DOSSIER (jamais celle des fichiers, qui gardent leur
+  # date d'origine : une photo téléchargée il y a 2 semaines ne doit pas être supprimée juste après son rangement)
+  local lim d; lim=$(date -u -d '10 days ago' +%Y%m%d)
+  rclone lsf "$R:montage-joints-utilises" --dirs-only 2>/dev/null | while read -r d; do
+    d="${d%/}"
+    [[ "$d" =~ ^([0-9]{8})- ]] && [ "${BASH_REMATCH[1]}" -lt "$lim" ] && [ "$d" != "$ST" ] \
+      && rclone purge "$R:montage-joints-utilises/$d" -q 2>/dev/null || true
+  done
+}
 MODE="${1:-publier}"
 SUM="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 CIBLE_REPO="${CHAINE_SHORTS_REPO:-MaxMcNeil/Push-overlay}"
@@ -150,8 +168,8 @@ echo "### ✅ 🔗 Chaîne \`$CHAINE_ID\` — Shorts lancés dans [Push-overlay]
 if [ -n "${JOINTS_B64:-}" ]; then
   printf '%s' "$JOINTS_B64" | base64 -d > joints-utilises.txt 2>/dev/null || : > joints-utilises.txt
   if [ -s joints-utilises.txt ] && rclone_pret; then
-    rclone delete "$REMOTE:$JOINTS" --files-from joints-utilises.txt -q \
-      && echo "Dossier « $JOINTS » vidé ($(wc -l < joints-utilises.txt) fichier(s), corbeille Drive)." | tee -a "$SUM" \
+    ranger_joints "$REMOTE" "$JOINTS" joints-utilises.txt "${CHAINE_ID:-chaine}" \
+      && echo "Dossier « $JOINTS » vidé : $(wc -l < joints-utilises.txt) fichier(s) rangé(s) dans « montage-joints-utilises » (pour une relance : option « reprendre »)." | tee -a "$SUM" \
       || echo "::warning::Le dossier « $JOINTS » n'a pas pu être vidé : retire ces fichiers à la main avant la prochaine vidéo."
   else
     echo "::warning::Le dossier « $JOINTS » n'a pas pu être vidé : retire ces fichiers à la main avant la prochaine vidéo."

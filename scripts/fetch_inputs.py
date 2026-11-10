@@ -172,6 +172,27 @@ def from_rclone(path: str, dest: Path) -> list[Path]:
     return got
 
 
+def reprendre_joints(rem: str, joints: str) -> None:
+    """RELANCE (option « reprendre ») : les pièces jointes du DERNIER montage réussi, rangées dans
+    montage-joints-utilises/<date>-<id>, reviennent dans le dossier montage-joints. Rien à restaurer à la main."""
+    if (os.environ.get("REPRENDRE_JOINTS") or "non").strip().lower() not in ("oui", "dernier", "yes", "1", "true"):
+        return
+    r = sh(["rclone", "cat", f"{rem}:montage-joints-utilises/dernier.txt"], check=False)
+    st = (r.stdout or "").strip().splitlines()[0] if (r.stdout or "").strip() else ""
+    if not st:
+        msg = "reprendre : aucun rangement précédent trouvé (montage-joints-utilises/dernier.txt) — dossier pris tel quel"
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+        return
+    m = sh(["rclone", "move", f"{rem}:montage-joints-utilises/{st}", f"{rem}:{joints}", "-q"], check=False)
+    if m.returncode == 0:
+        print(f"♻ Pièces jointes du dernier montage ({st}) remises dans « {joints} »")
+    else:
+        msg = f"reprendre : rangement « {st} » non remis dans « {joints} » ({(m.stderr or '').strip()[-150:]})"
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+
+
 def joints_mine() -> str | None:
     """Nom du fichier « moi… » présent dans le dossier Drive montage-joints (None s'il n'y en a pas ou pas de Drive)."""
     joints = (os.environ.get("MONTAGE_JOINTS_DRIVE") or "montage-joints").strip().strip("/")
@@ -195,6 +216,7 @@ def drive_joints(dest: Path) -> list[Path]:
     rem = rclone_remote()
     if not rem:
         return []
+    reprendre_joints(rem, joints)
     ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
     pris = [x.strip() for x in (ls.stdout or "").splitlines() if MEDIA_RE.search(x.strip())]
     if not pris:
@@ -373,6 +395,7 @@ def chaine():
         die(f"Chaîne : vidéo introuvable sur Google Drive (identifiant {vid}). RCLONE_CONF doit être le MÊME compte Google "
             "que RCLONE_CONFIG du dépôt fond vert. Le fichier est gardé 2 jours dans Drive, dossier chaine/.")
     main_video = vids[0]
+    reprendre_joints(rem, joints)
     # photos / vidéos du dossier montage-joints
     ls = sh(["rclone", "lsf", f"{rem}:{joints}", "--files-only", "-R"], check=False)
     # ta vidéo brute « moi… » (source du fond vert) n'est JAMAIS un extrait, et n'est jamais retirée de ton Drive

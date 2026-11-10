@@ -77,6 +77,11 @@ on:
         type: choice
         options: [auto, oui, non]
         default: auto
+      reprendre:
+        description: "♻ Relance : reprendre les pièces jointes du DERNIER montage réussi (rangées dans Drive « montage-joints-utilises »)"
+        type: choice
+        options: [non, oui]
+        default: non
       vitesse:
         description: "⏩ Vitesse de ta parole : 1 = normale · 1.1 = 10 % plus rapide (0.8 à 1.5) — voix inchangée, image et son synchro. En chaîne depuis le fond vert : déjà appliquée là-bas, ignorée ici"
         default: "1"
@@ -311,6 +316,7 @@ jobs:
         env:
           SOURCE: ${{ inputs.source }}
           PIECES: ${{ inputs.pieces_jointes }}
+          REPRENDRE_JOINTS: ${{ inputs.reprendre || (github.event.client_payload.opts.reprendre) || 'non' }}
           NOTES: ${{ inputs.consignes }}
           EVENT_TAG: ${{ github.event.release.tag_name }}
         run: |

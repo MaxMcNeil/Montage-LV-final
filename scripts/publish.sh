@@ -6,9 +6,27 @@
 #   - si ni Drive ni release : Artifacts du run (14 jours).
 # Tes releases déposées (vidéos « montage… », pièces jointes) ne sont JAMAIS supprimées automatiquement :
 # seul l'état de leur titre change (✅ TERMINÉ…). Tu les supprimes toi-même quand tu veux.
-# Dossier Drive montage-joints : seuls les fichiers réellement pris par CE montage sont retirés (corbeille Drive,
-# récupérables 30 jours), et seulement si le montage a bien été déposé quelque part.
+# Dossier Drive montage-joints : seuls les fichiers réellement pris par CE montage sont rangés (Drive
+# « montage-joints-utilises », 10 jours), et seulement si le montage a bien été déposé quelque part.
 set -uo pipefail
+
+# Pièces jointes utilisées : RANGÉES (jamais à la corbeille) dans montage-joints-utilises/<date>-<id>, pour pouvoir
+# relancer le même montage sans rien restaurer (option « reprendre »). Rangements de plus de 10 jours : supprimés.
+ranger_joints() { # remote dossier liste id
+  local R="$1" D="$2" L="$3" ST
+  ST="$(date -u +%Y%m%d-%H%M)-$(printf '%s' "$4" | tr -c 'A-Za-z0-9_-' '_' | cut -c1-40)"
+  rclone move "$R:$D" "$R:montage-joints-utilises/$ST" --files-from "$L" -q || return 1
+  printf '%s\n' "$ST" > /tmp/dernier-rangement.txt
+  rclone copyto /tmp/dernier-rangement.txt "$R:montage-joints-utilises/dernier.txt" -q || true
+  # ménage : rangements de plus de 10 jours, d'après la DATE DU DOSSIER (jamais celle des fichiers, qui gardent leur
+  # date d'origine : une photo téléchargée il y a 2 semaines ne doit pas être supprimée juste après son rangement)
+  local lim d; lim=$(date -u -d '10 days ago' +%Y%m%d)
+  rclone lsf "$R:montage-joints-utilises" --dirs-only 2>/dev/null | while read -r d; do
+    d="${d%/}"
+    [[ "$d" =~ ^([0-9]{8})- ]] && [ "${BASH_REMATCH[1]}" -lt "$lim" ] && [ "$d" != "$ST" ] \
+      && rclone purge "$R:montage-joints-utilises/$d" -q 2>/dev/null || true
+  done
+}
 F=output/montage-final.mp4
 SUM="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
 TAG_OUT="out-montage"
@@ -103,8 +121,8 @@ else
   # montage déposé : on retire de montage-joints UNIQUEMENT les fichiers pris par ce montage
   if [ -n "$REMOTE" ] && [ -s input/joints-utilises.txt ]; then
     JD="${JOINTS_DOSSIER:-montage-joints}"
-    rclone delete "$REMOTE:$JD" --files-from input/joints-utilises.txt -q \
-      && echo "Dossier Drive « $JD » : $(wc -l < input/joints-utilises.txt) fichier(s) utilisé(s) retiré(s) (corbeille Drive)." \
+    ranger_joints "$REMOTE" "$JD" input/joints-utilises.txt "solo" \
+      && echo "Dossier Drive « $JD » : $(wc -l < input/joints-utilises.txt) fichier(s) rangé(s) dans « montage-joints-utilises » (pour une relance : option « reprendre »)." \
       || echo "::warning::Le dossier « $JD » n'a pas pu être vidé : retire ces fichiers à la main avant la prochaine vidéo."
   fi
 fi

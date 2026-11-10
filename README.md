@@ -227,7 +227,7 @@ aucun. Pour garder tes longs silences : `silences_longs: non` (description de la
 - **Ta vidéo** peut être donnée par son chemin Drive dans le champ *source* : `gdrive:resultats/moi-ma-video.mp4`
   (ou un lien Google Drive, ou un tag de release).
 - **Dossier `montage-joints`** : ses photos / vidéos sont **toujours** prises (manuel, release et chaîne). Après un
-  montage déposé avec succès, seuls les fichiers pris par ce montage en sont retirés (corbeille Drive, 30 jours).
+  montage déposé avec succès, seuls les fichiers pris par ce montage en sont retirés (rangés dans Drive « montage-joints-utilises », 10 jours ; relance : option « ♻ reprendre »).
 - **Autres pièces jointes** : champ *pieces_jointes* → `gdrive:un-dossier`, `gdrive:dossier/fichier.mp4`, liens Drive,
   ou tag d'une release (ex. `video`).
 - **Résultat** : toujours copié sur Drive dans `resultats/montage-<nom>.mp4` (+ son PLAN), quelle que soit la taille ;
