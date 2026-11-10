@@ -31,19 +31,33 @@ photo() { # nom "lang:Titre_Wikipedia"
   else rm -f "$f.src" "$f"; rate "photo $1 ($2) introuvable"; fi
 }
 
+# capture = page d'erreur ? (« Sorry, you have been blocked », 403, 404, captcha…) — lu sur l'image, sans IA
+page_erreur() {
+  command -v tesseract >/dev/null || return 1
+  local t; t=$(tesseract "$1" - 2>/dev/null)
+  echo "$t" | grep -qiE "you have been blocked|access denied|acc[eè]s refus|attention required|verify you are (a )?human|are you a robot|captcha|cloudflare ray id|403 forbidden|error 40[34]|erreur 40[34]|page not found|page introuvable|enable javascript and cookies|just a moment|unusual traffic" \
+    && [ "$(echo "$t" | wc -c)" -lt 1500 ]
+}
+
 article() { # nom url
-  local f="$OUT/$1.jpg" enc i ct
+  local f="$OUT/$1.jpg" enc i ct bloque=""
   enc=$(jq -rn --arg u "$2" '$u|@uri')
   for i in 1 2 3 4 5 6 7 8; do   # la capture est générée en quelques secondes
     ct=$(curl -sL -A "$UA" -o "$f" -w '%{content_type}' "https://s0.wp.com/mshots/v1/$enc?w=1280&h=1500" || true)
-    [[ "$ct" == image/jpeg* ]] && [ "$(taille "$f")" -gt 30000 ] && { bon "$1.jpg" "capture article" "$2"; return; }
+    if [[ "$ct" == image/jpeg* ]] && [ "$(taille "$f")" -gt 30000 ]; then
+      if page_erreur "$f"; then bloque=1; break; fi          # le site bloque ce service : on essaie l'autre
+      bon "$1.jpg" "capture article" "$2"; return
+    fi
     sleep 10
   done
   if curl -sL -A "$UA" -o "$f" "https://image.thum.io/get/width/1280/crop/1500/noanimate/$2" \
      && [ "$(taille "$f")" -gt 30000 ] && file -b --mime-type "$f" | grep -q '^image/'; then
-    bon "$1.jpg" "capture article" "$2"; return
+    if page_erreur "$f"; then bloque=1
+    else bon "$1.jpg" "capture article" "$2"; return; fi
   fi
-  rm -f "$f"; rate "article $1 : capture impossible ($2)"
+  rm -f "$f"
+  if [ -n "$bloque" ]; then rate "article $1 : le site bloque les captures (page d'erreur, jamais déposée) — fais la capture toi-même sur ton téléphone : $2"
+  else rate "article $1 : capture impossible ($2)"; fi
 }
 
 # ---------- vidéos : YouTube d'abord, puis TOUS les contournements, automatiquement ----------

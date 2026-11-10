@@ -34,6 +34,24 @@ def _even(x: float) -> int:
     return v + (v % 2)
 
 
+def face_in_output(face: dict, info: dict, orient: str, zmax: float = 1.2) -> dict:
+    """Où est ton visage dans l'IMAGE MONTÉE (et non dans ta vidéo d'origine) : même calcul de cadrage que le rendu
+    (recadrage, ou vidéo verticale au centre d'une image horizontale), au zoom le plus fort utilisé. Sert à placer les
+    titres et bandeaux pour qu'ils ne couvrent JAMAIS ta bouche ni ton visage."""
+    W, H = SIZE[orient]
+    sw, sh = float(info.get("w") or W), float(info.get("h") or H)
+    cy, fh = float(face.get("cy", 0.38)), float(face.get("fh", 0.3))
+    pillar = orient == "h" and sh > sw * 1.05
+    if pillar:
+        fhp = H * zmax
+        y = clamp(cy * fhp - H * 0.42, 0, fhp - H)
+        return dict(face, cy=(cy * fhp - y) / H, fh=fh * fhp / sh * sh / H)
+    s_ = max(W / sw, H / sh) * zmax
+    SH = sh * s_
+    y1 = clamp(cy * SH - H * 0.42, 0, SH - H)
+    return dict(face, cy=(cy * SH - y1) / H, fh=fh * SH / H)
+
+
 class Ctx:
     def __init__(self, src: Path, info: dict, face: dict, orient: str, work: Path, ass_path: Path, fonts: Path | None):
         self.src, self.info, self.face, self.o, self.work = src, info, face, orient, work

@@ -590,7 +590,9 @@ def main(argv=None) -> int:
     log.info("Visage : %s (%.2f, %.2f)", "trouvé" if face["found"] else "non trouvé (cadrage centré)", face["cx"], face["cy"])
     def _textes(o_: str, main_: bool = True):
         """Textes à l'écran (accroche, chapitres, crédits des extraits, sous-titres, fin) pour un format donné."""
-        sub = ASS(o_, lang, face)
+        from .render import face_in_output
+        sub = ASS(o_, lang, face_in_output(face, vinfo, o_))   # ton visage tel qu'il est DANS l'image montée
+        sub.no_caps = opts["sous_titres"] == "non"
         h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
         hook_end = h0 + 4.2 if plan.get("hook") else 0.0
         if plan.get("hook"):
@@ -707,6 +709,9 @@ def main(argv=None) -> int:
         plan["_opener_note"] = ((plan.get("_opener_note") or "ouverture choc") + " — " + R.OPENER_NOTES[-1])
         if R.OPENER_NOTES[-1].startswith("⚠"):
             qc.append((False, R.OPENER_NOTES[-1].lstrip("⚠ ")))
+    from .assets import BLOCKED as _blocked
+    for b_ in _blocked:   # capture d'article ratée (page d'erreur) : signalée en tête de PLAN.md, jamais montée
+        qc.append((False, b_))
     for n_ in R.INSERT_NOTES:
         if n_.startswith("⚠"):
             qc.append((False, n_.lstrip("⚠ ")))

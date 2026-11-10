@@ -31,23 +31,27 @@ class ASS:
         self.ev: list[str] = []
         self.k = 1.2 if is_rtl(lang) else 1.0     # agrandissement de l'écriture arabe
         f = face or {"cy": 0.38, "fh": 0.3}
-        fh = max(0.12, min(0.5, f.get("fh", 0.3)))
-        # zone protégée : du haut des cheveux au bas du menton (marges larges)
-        self.face_top = (f["cy"] - fh * 0.95) * self.H
-        self.face_bot = (f["cy"] + fh * 0.80) * self.H
+        fh = max(0.10, min(0.6, f.get("fh", 0.3)))
+        # zone protégée : du haut des cheveux au bas du MENTON et du cou (le cadre du détecteur s'arrête à la bouche :
+        # marges larges, sinon un titre peut couvrir ta bouche)
+        self.face_top = (f["cy"] - fh * 1.0) * self.H
+        self.face_bot = (f["cy"] + fh * 1.45) * self.H
         cap_lh = (70 if orient == "v" else 64) * 1.2 * self.k
         self.cap_top = self.H - (0.17 * self.H if orient == "v" else 64) - 2 * cap_lh - 44   # haut des sous-titres (2 lignes)
+        self.no_caps = False   # True : pas de sous-titres dans cette vidéo (le bas de l'image est libre pour les titres)
 
     def text_band_y(self, half: int) -> int:
         """Centre d'un bandeau de texte (hauteur 2*half) qui ne touche ni le visage ni les sous-titres :
-        sous le visage si la place existe, sinon au-dessus, sinon le plus bas possible."""
+        sous le visage si la place existe, sinon au-dessus, sinon le plus bas possible (jamais sur la bouche)."""
+        low = self.H * 0.975 if self.no_caps else self.cap_top     # sans sous-titres : tout le bas de l'image est libre
         below = self.face_bot + half + 20
-        if below + half <= self.cap_top:
+        if below + half <= low:
             return int(below)
         above = self.face_top - half - 20
-        if above - half >= 0.04 * self.H:
+        if above - half >= 0.03 * self.H:
             return int(above)
-        return int(self.cap_top - half)
+        # pas de place franche : tout en HAUT de l'image (au pire sur les cheveux / le front), jamais sur la bouche
+        return int(0.03 * self.H + half)
 
     def add(self, t0, t1, style, text, layer=1, ml=0, mr=0, mv=0):
         if t1 - t0 >= 0.05:

@@ -47,6 +47,77 @@ def _jpeg_bytes(img, max_side=1024) -> bytes:
     return b.getvalue()
 
 
+BLOCKED_RE = re.compile(
+    r"you have been blocked|access denied|acc[eè]s refus[ée]|attention required|verify you are (a )?human|"
+    r"are you a robot|captcha|cloudflare ray id|403 forbidden|error 40[34]|erreur 40[34]|page not found|"
+    r"page introuvable|enable javascript and cookies|just a moment\.\.\.|unusual traffic|"
+    r"vous avez [ée]t[ée] bloqu|this site can.t be reached|err_[a-z_]+", re.I)
+
+
+def error_page(path: str) -> str:
+    """Texte lu (OCR, sans IA) qui prouve que l'image est une PAGE D'ERREUR (site qui bloque la capture, 404,
+    captcha…) ; '' sinon, ou si l'OCR n'est pas disponible. Une telle image n'est JAMAIS montée."""
+    import shutil
+    if not shutil.which("tesseract"):
+        return ""
+    try:
+        r = subprocess.run(["tesseract", str(path), "-", "--psm", "3"], capture_output=True, text=True, timeout=60)
+        txt = r.stdout or ""
+        hits = BLOCKED_RE.findall(txt)
+        m = BLOCKED_RE.search(txt)
+        # une page d'erreur est courte ; un VRAI article qui parle de « captcha » est long : jamais rejeté pour ça
+        return m.group(0) if m and (len(txt) < 1500 or len(hits) >= 2) else ""
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def static_edges(path: str, dur: float) -> tuple[float, float]:
+    """(début utile, fin utile) d'une vidéo jointe, SANS IA : une image fixe (carte-titre de la chaîne, vignette,
+    écran « abonnez-vous ») au début ou à la fin, suivie / précédée d'un changement de plan net, est sautée.
+    Exemple : « Lescure accuse le RN… » posé sur une photo de l'Assemblée avant le vrai reportage."""
+    import numpy as np
+    head, tail = 0.0, dur
+
+    def frames(ss: float, t: float):
+        r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{max(0.0, ss):.2f}", "-t", f"{t:.2f}", "-i", path,
+                            "-vf", "fps=4,scale=64:36,format=gray", "-f", "rawvideo", "-"], capture_output=True,
+                           timeout=120)
+        a = np.frombuffer(r.stdout, np.uint8)
+        n = a.size // (64 * 36)
+        return a[:n * 64 * 36].reshape(n, 36, 64).astype(np.float32) if n > 4 else None
+
+    def first_cut(f, from_end=False):
+        d = np.abs(np.diff(f, axis=0)).mean(axis=(1, 2))           # mouvement entre deux images (0,25 s)
+        idx = range(len(d) - 1, -1, -1) if from_end else range(len(d))
+        for i in idx:
+            if d[i] > 22:                                          # changement de plan net
+                still = d[i + 1:] if from_end else d[:i]
+                live = d[:i] if from_end else d[i + 1:]
+                ms = float(np.median(still)) if len(still) else 99.0
+                ml = float(np.median(live)) if len(live) else 0.0
+                # ≥ 1,5 s et ≤ 12 s quasi immobile de ce côté, nettement plus vivant de l'autre : une carte-titre,
+                # pas un plan calme de reportage (jamais de vrai contenu sauté)
+                if 6 <= len(still) <= 48 and ms < 1.8 and ml > max(2.5, 2.5 * ms):
+                    return i
+                return None
+        return None
+    try:
+        if dur > 12:
+            f = frames(0, min(25.0, dur / 2))
+            if f is not None:
+                i = first_cut(f)
+                if i is not None:
+                    head = (i + 1) / 4.0 + 0.1
+            f = frames(max(0.0, dur - 25.0), 25.0)
+            if f is not None:
+                i = first_cut(f, from_end=True)
+                if i is not None:
+                    tail = max(head + 3.0, dur - 25.0 + i / 4.0 - 0.1)
+    except Exception as e:  # noqa: BLE001 - jamais bloquant
+        log.info("début/fin fixes de %s non mesurés : %s", path, e)
+    return head, tail
+
+
 _CONV = re.compile(r"^(?:\d{2}_)?[pva]\d{2,4}[_-](.+)$", re.I)
 
 
@@ -97,6 +168,9 @@ def subject_labels(ai, att: list, lang: str) -> None:
         a["label_sure"] = True   # sujet de TON nom de fichier : prioritaire partout (photos, extraits)
 
 
+BLOCKED: list = []   # pièces jointes refusées (pages d'erreur), pour PLAN.md
+
+
 def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
     """Décrit chaque pièce jointe (IA qui regarde l'image) ; transcrit les vidéos jointes."""
     from .panels import open_image
@@ -108,6 +182,13 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                 a["broken"] = True
                 continue
             a["w"], a["h"] = img.size
+            why = error_page(a["path"])
+            if why:   # capture ratée (« Sorry, you have been blocked »…) : jamais affichée
+                a["broken"] = True
+                BLOCKED.append(f"« {a['name']} » est une page d'erreur (« {why} ») : non montée — refais la capture "
+                               "ou mets une autre image")
+                log.warning("pièce jointe %s : page d'erreur lue dans l'image (« %s ») → non montée", a["name"], why)
+                continue
         else:
             try:
                 info = probe(a["path"])
@@ -123,6 +204,15 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
                         log.warning("vidéo jointe %s : transcription impossible (%s) → utilisée quand même, sans "
                                     "ses paroles", a["name"], e)
                         a["sentences"] = []
+                # carte-titre / vignette fixe au début (ou écran de fin) : sautée, même sans IA
+                h_, t_ = static_edges(a["path"], info["duration"])
+                if h_ > 0.5:
+                    a["head_skip"] = max(a.get("head_skip", 0.0), h_)
+                    log.info("vidéo jointe %s : image fixe au début (carte-titre) → passée (%.1f s)", a["name"], h_)
+                if t_ < info["duration"] - 0.5:
+                    a["tail_cut"] = t_
+                    a["duration"] = t_          # jamais monté au-delà (écran de fin, « abonnez-vous »)
+                    log.info("vidéo jointe %s : image fixe à la fin → coupée à %.1f s", a["name"], t_)
                 # image décrite : au milieu de la 1re VRAIE phrase (jamais le générique / jingle du début)
                 real = [x for x in a.get("sentences") or [] if len(x["text"].split()) >= 4]
                 t_fr = (real[0]["t0"] + real[0]["t1"]) / 2 if real else min(info["duration"] * 0.3, 20.0)

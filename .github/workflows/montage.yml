@@ -255,7 +255,7 @@ jobs:
       - name: Outils (ffmpeg + libass, polices Noto dont l'arabe)
         run: |
           set -euo pipefail
-          PKGS="ffmpeg fonts-noto-core fontconfig libraqm0 libfribidi0 jq"
+          PKGS="ffmpeg fonts-noto-core fontconfig libraqm0 libfribidi0 jq tesseract-ocr"
           need=""; for p in $PKGS; do dpkg -s "$p" >/dev/null 2>&1 || need="$need $p"; done
           if [ -n "$need" ]; then
             mkdir -p ~/apt-archives/partial
