@@ -74,7 +74,7 @@ def subject_labels(ai, att: list, lang: str) -> None:
         lst = "\n".join(f"[{k}] {' '.join(w)}" for k, (_, w) in enumerate(todo))
         try:
             j = ai.json(f"Mets en forme chaque sujet en courte légende (langue « {lang} ») : majuscules aux noms propres, "
-                        f"accents, petits mots de liaison (de, à, la, :) si besoin. N'AJOUTE AUCUNE information, aucun "
+                        f"accents, ponctuation (virgule, deux-points), au plus « de », « à », « la », « le », « les ». N'AJOUTE AUCUNE information, aucun "
                         f"prénom, aucun détail. Ex : « mitterrand 10 mai 1981 victoire » → « Mitterrand, 10 mai 1981 : "
                         f"la victoire ».\n{lst}\nRéponds en JSON : {{\"labels\": [{{\"n\": 0, \"l\": \"…\"}}]}}")
             for x in ((j or {}).get("labels") or []) if isinstance(j, dict) else []:
@@ -82,7 +82,8 @@ def subject_labels(ai, att: list, lang: str) -> None:
                     out[int(x["n"])] = " ".join(str(x.get("l") or "").split())[:70]
         except Exception as e:  # noqa: BLE001
             log.warning("légendes depuis les noms de fichiers : %s", e)
-    stop = {"de", "du", "des", "la", "le", "les", "l", "d", "a", "au", "aux", "et", "en", "sur", "un", "une"}
+    # seuls petits mots permis : ceux qui ne changent pas le sens (« rues, bois » ne devient jamais « rues EN bois »)
+    stop = {"de", "du", "des", "la", "le", "les", "l", "d", "a"}
     for k, (a, words) in enumerate(todo):
         lab = out.get(k, "")
         need = {n(w) for w in words}

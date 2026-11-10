@@ -28,3 +28,9 @@ def test_sans_ia():
     att = [{"name": "20_v101_mitterrand_10mai1981_victoire.mp4", "label": "Un enfant à l'élection"}]
     subject_labels(None, att, "fr")
     assert att[0]["label"] == "Mitterrand 10 mai 1981 victoire"
+
+
+def test_jamais_un_mot_qui_change_le_sens():
+    att = [{"name": "27_v109_macron_orleans_2017_rues_bois.mp4", "label": ""}]
+    subject_labels(AI(["Macron, Orléans 2017 : rues en bois"]), att, "fr")
+    assert att[0]["label"] == "Macron orleans 2017 rues bois"
