@@ -640,6 +640,49 @@ def main(argv=None) -> int:
     vinfo = dict(vinfo, quiet=list(quiet))   # tes silences : pendant un extrait, tu « écoutes » (jamais figé)
     ctx = Ctx(Path(vsrc).resolve(), vinfo, face, orient, work.resolve(), ass_path, fonts)
     # (logo qui tournait derrière toi : retiré à ta demande — ctx.decor reste vide)
+    from . import render as R
+    R.BRAND = brand_check(brand, work / "chaine")
+    R.BRAND_FAILS.clear()
+    R.OPENER_NOTES.clear()
+    R.INSERT_NOTES.clear()
+    T_RENDER0 = time.time()
+    vid = render_video(segs, ctx, work / "video.mp4", workers=int(os.environ.get("MONTAGE_WORKERS", "2")))
+    main_wav = extract_main_audio(src, info, work / "main.wav")
+    audio_note = ""
+    if opts.get("voix_studio") == "oui" and info["audio"]:
+        from .voix_studio import apply as studio
+        main_wav, audio_note = studio(src, main_wav, work)
+        log.info("Voix : %s", audio_note)
+    # carte de fin : le petit générique « info » à son arrivée (en plus du souffle et de la nappe des cartes)
+    aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", list(chap_times) + outro_t)
+    # « logo incrusté » écrit dans le fichier : Push-overlay (Shorts) n'ajoute alors pas un 2e petit logo
+    tagc = ""
+    if R.BRAND and R.BRAND.get("bug") and len(R.BRAND_FAILS) < len(segs):
+        prof_ = brand.get("profil") or {}
+        tagc = f"montage-lv-final;logo={orient}-haut-droite;chaine={prof_.get('code', '')};langue={lang}"
+    final = mux(vid, aud, outd / "montage-final.mp4", comment=tagc)
+    log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
+    # 7b) vidéo HORIZONTALE + Shorts enchaînés : une version VERTICALE propre pour les Shorts (mêmes coupes, mêmes
+    #     cartes, même son), sinon Push-overlay découperait une bande au centre (cartes, cadres et titres coupés)
+    vert_note = None
+    want_v = (os.environ.get("MONTAGE_VERSION_VERTICALE") or "auto").strip().lower()
+    chained = bool((os.environ.get("CHAINE_ID") or "").strip()) or \
+        (os.environ.get("MONTAGE_CHAINE_SHORTS") or "").strip().lower() == "oui"
+    if orient == "h" and (want_v == "oui" or (want_v == "auto" and chained)):
+        render_min = (time.time() - T_RENDER0) / 60
+        left_min = float(os.environ.get("MONTAGE_BUDGET_MIN", "320")) - (time.time() - T0) / 60
+        if render_min * 1.3 + 5 > left_min:
+            vert_note = (f"⚠ version verticale pour les Shorts non faite (temps restant {left_min:.0f} min, il en faudrait "
+                         f"~{render_min * 1.3 + 5:.0f}) : les Shorts seront recadrés au centre")
+        else:
+            try:
+                vert_note = _vertical_version(segs, sub_fn=_textes, brand=brand, aud=aud, vsrc=vsrc, vinfo=vinfo,
+                                              face=face, work=work, outd=outd, fonts=fonts, lang=lang)
+            except Exception as e:  # noqa: BLE001 - jamais bloquant : le montage horizontal est déjà prêt
+                log.warning("version verticale impossible : %s", e)
+                vert_note = f"⚠ version verticale pour les Shorts impossible ({type(e).__name__}) : Shorts recadrés au centre"
+        log.info("Version verticale : %s", vert_note)
+    log.info("%s", ai.usage_line())
 
     # 8) contrôle qualité automatique, puis rapport : quoi / où / quand
     try:
