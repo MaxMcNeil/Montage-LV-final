@@ -89,12 +89,19 @@ def describe_attachments(att: list, ai, work: Path, lang: str) -> None:
         if img is not None and ai and ai.ok:
             j = ai.json(
                 f"Décris cette {'image' if a['kind'] == 'image' else 'image tirée d’une vidéo'} (fichier « {a['name']} ») "
-                f"pour un monteur vidéo. Réponds en JSON : {{\"description\": \"ce que l'on voit, en une phrase (personnes "
+                f"pour un monteur vidéo."
+                + (f" Paroles du début de la vidéo : « {' '.join(x['text'] for x in (a.get('sentences') or [])[:4])[:500]} »."
+                   if a["kind"] != "image" and a.get("sentences") else "")
+                + " Réponds en JSON : "
+                f"{{\"description\": \"ce que l'on voit, en une phrase (personnes "
                 f"reconnaissables si leur nom est écrit ou évident, lieu, objet, document, texte lisible)\", "
-                f"\"label\": \"légende de 2 à 6 mots en langue « {lang} »\", \"document\": true si c'est une capture d'écran, "
+                f"\"label\": \"légende de 2 à 6 mots en langue « {lang} »"
+                + (" : le SUJET de la vidéo (qui parle, quel événement, quelle date — aide-toi du nom du fichier et de "
+                   "ses paroles ci-dessus), JAMAIS un détail de l'image (un enfant, une foule, un décor)"
+                   if a["kind"] != "image" else "") + f"\", \"document\": true si c'est une capture d'écran, "
                 f"un document, un logo ou un graphique (à ne pas rogner), \"generique\": true si c'est un générique, un "
                 f"jingle, une intro ou un logo animé de chaîne, un écran « abonnez-vous » (pas un vrai contenu)}}",
-                image=("image/jpeg", _jpeg_bytes(img)), media_key=f"{a['name']}|{os.path.getsize(a['path'])}")
+                image=("image/jpeg", _jpeg_bytes(img)), media_key=f"v2|{a['name']}|{os.path.getsize(a['path'])}")
             if isinstance(j, dict):
                 a["description"] = str(j.get("description") or "")[:400]
                 a["label"] = str(j.get("label") or "")[:60]

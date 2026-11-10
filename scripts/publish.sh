@@ -16,12 +16,14 @@ TAG_OUT="out-montage"
 MB=$(( $(stat -c %s "$F") / 1048576 ))
 # verdict du contrôle qualité (1re ligne de PLAN.md) : affiché dans le titre du résultat et l'état de ta release
 if head -1 output/PLAN.md 2>/dev/null | grep -q "✅"; then VERDICT="✅ prêt à publier"; else VERDICT="⚠ à vérifier (voir PLAN.md)"; fi
-NAME="montage-${BASE:-video}.mp4"
+FMT=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 output/montage-final.mp4 2>/dev/null \
+      | awk -F, '{print ($1 >= $2) ? "HORIZONTAL" : "VERTICAL"}')
+NAME="A-PUBLIER-montage-${BASE:-video}-${FMT:-video}.mp4"
 cp "$F" "output/$NAME"
 # vidéo horizontale + Shorts enchaînés : version VERTICALE propre, c'est elle qui part aux Shorts
 SNAME="$NAME"; EXTRA=()
 if [ -s output/montage-shorts-vertical.mp4 ]; then
-  SNAME="montage-${BASE:-video}-vertical-shorts.mp4"
+  SNAME="pour-les-Shorts-seulement-${BASE:-video}-vertical.mp4"
   cp output/montage-shorts-vertical.mp4 "output/$SNAME"
   EXTRA=("output/$SNAME")
   MBV=$(( $(stat -c %s "output/$SNAME") / 1048576 )); [ "$MBV" -gt "$MB" ] && MB=$MBV

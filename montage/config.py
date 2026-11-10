@@ -147,7 +147,7 @@ DEFAULTS = {
     "voix_studio": "non",           # oui : ta voix traitée façon studio (clarté, débruitage doux, volume régulier)
     "vitesse": "1",                 # 1 = normale ; 1.1 = 10 % plus rapide (0.8 à 1.5), appliquée avant le montage
     "habillage": "oui",             # oui (horizontal) : là où rien n'est prévu, toi dans ton cadre + carte de ta phrase
-    "decor": "oui",                 # oui : en chaîne depuis le fond vert, le logo tourne lentement derrière toi (plein cadre)
+    "decor": "non",                 # retiré à ta demande (logo derrière toi) : jamais appliqué
     "format": "auto",               # auto = même format que ta vidéo | horizontal | vertical (forcé)
 }
 

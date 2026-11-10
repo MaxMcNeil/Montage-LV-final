@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import subprocess
 import threading
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -329,25 +330,70 @@ def freeze(ctx: Ctx, t: float, out: Path) -> Path:
     return out
 
 
+_CALM_LOCK = __import__("threading").Lock()
+
+
+def _calm_silences(ctx: Ctx) -> list:
+    """Tes silences où tu es VRAIMENT calme (bouche immobile) : mouvement mesuré sur ta bouche, image par image.
+    Calculé une fois par montage. [(début, fin, mouvement)] du plus calme au moins calme."""
+    with _CALM_LOCK:
+        if getattr(ctx, "_calm", None) is not None:
+            return ctx._calm
+        import numpy as np
+        q = sorted([(a, b) for a, b in (ctx.info.get("quiet") or []) if b - a >= 1.3],
+                   key=lambda x: -(x[1] - x[0]))[:30]
+        f = ctx.face or {}
+        sw, sh = int(ctx.sw), int(ctx.sh)
+        fh = float(f.get("fh") or 0.3) * sh
+        mx, my = float(f.get("cx", 0.5)) * sw, float(f.get("cy", 0.38)) * sh + 0.27 * fh
+        bw, bh = max(16, int(0.55 * fh)) // 2 * 2, max(12, int(0.30 * fh)) // 2 * 2
+        x0 = int(min(max(0, mx - bw / 2), sw - bw))
+        y0 = int(min(max(0, my - bh / 2), sh - bh))
+        out = []
+        for a, b in q:
+            m0, d = (a + b) / 2 - min(1.2, (b - a) / 2 - 0.2), min(2.4, b - a - 0.4)
+            try:
+                r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{m0:.3f}", "-t", f"{d:.3f}", "-i", str(ctx.src),
+                                    "-vf", f"crop={bw}:{bh}:{x0}:{y0},scale=64:36,fps=12,format=gray",
+                                    "-f", "rawvideo", "-"], capture_output=True, timeout=60)
+                fr = np.frombuffer(r.stdout, np.uint8)
+                n = fr.size // (64 * 36)
+                if n < 6:
+                    continue
+                fr = fr[:n * 64 * 36].reshape(n, 36, 64).astype(np.float32)
+                motion = float(np.abs(np.diff(fr, axis=0)).mean())
+                out.append((m0, m0 + d, motion))
+            except Exception:  # noqa: BLE001
+                continue
+        out.sort(key=lambda x: x[2])
+        if out:
+            log.info("toi qui écoutes : %d silence(s) mesuré(s), le plus calme bouge de %.2f, le moins calme de %.2f",
+                     len(out), out[0][2], out[-1][2])
+        ctx._calm = out
+        return out
+
+
 def listen_clip(ctx: Ctx, t: float, out: Path) -> Path | None:
-    """Toi qui ÉCOUTES pendant un extrait (jamais une image figée) : un de tes vrais silences (bouche fermée, regard,
-    petits mouvements naturels), le plus proche de ce moment, ralenti un peu puis joué aller-retour (aucun saut) —
-    il tourne en boucle sous l'extrait. None si aucun silence utilisable (repli : image fixe, comme avant)."""
-    q = [(a, b) for a, b in (ctx.info.get("quiet") or []) if b - a >= 0.9]
-    if not q:
+    """Toi qui ÉCOUTES pendant un extrait (jamais une image figée) : un de tes silences où ta bouche est IMMOBILE
+    (mesuré), le plus proche de ce moment parmi les plus calmes, ralenti puis joué aller-retour (aucun saut).
+    None si aucun silence vraiment calme (repli : image fixe, comme avant)."""
+    calm = _calm_silences(ctx)
+    if not calm:
         return None
-    a, b = min(q, key=lambda x: (abs((x[0] + x[1]) / 2 - t), -(x[1] - x[0])))
-    a0, d = a + 0.12, min(3.2, b - a - 0.24)
-    if d < 0.6:
+    best = calm[0][2]
+    ok = [c for c in calm if c[2] <= max(best * 1.6, best + 0.6)][:5]   # seulement les plus calmes
+    if not ok or best > 6.0:   # même ton silence le plus calme bouge trop : image fixe plutôt qu'une bouche qui bat
         return None
+    a0, b0, _ = min(ok, key=lambda c: abs((c[0] + c[1]) / 2 - t))
+    d = b0 - a0
     try:
         run(["ffmpeg", "-y", "-ss", f"{a0:.3f}", "-t", f"{d:.3f}", "-i", ctx.src, "-filter_complex",
-             f"[0:v]fps={FPS},{ctx.full_chain(1.0)},setpts=1.3*PTS,fps={FPS},split[lf][lr];[lr]reverse[lrv];"
+             f"[0:v]fps={FPS},{ctx.full_chain(1.0)},setpts=1.5*PTS,fps={FPS},split[lf][lr];[lr]reverse[lrv];"
              f"[lf][lrv]concat=n=2:v=1:a=0,format=yuv420p[v]", "-map", "[v]", "-an",
              "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", str(out)], timeout=300)
         return out if out.exists() and out.stat().st_size > 1000 else None
     except Exception as e:  # noqa: BLE001
-        log.warning("toi qui écoutes (silence %.1f s) impossible : %s → image fixe", a, str(e)[-200:])
+        log.warning("toi qui écoutes (silence %.1f s) impossible : %s → image fixe", a0, str(e)[-200:])
         return None
 
 

@@ -39,12 +39,15 @@ if [ "$MODE" = "publier" ]; then
   if head -1 output/PLAN.md 2>/dev/null | grep -q "✅"; then VERDICT="✅ prêt à publier"; else VERDICT="⚠ à vérifier (voir PLAN.md)"; fi
   # nom simple (sans accents ni espaces) : utilisable tel quel dans un lien de téléchargement
   SAFE=$(python3 -c 'import re,sys,unicodedata as u;t=u.normalize("NFKD",sys.argv[1]).encode("ascii","ignore").decode();print(re.sub(r"[^A-Za-z0-9._-]+","_",t).strip("_")[:50] or "video")' "${BASE:-video}")
-  NAME="montage-$SAFE.mp4"
+  # nom qui dit le format : impossible de confondre avec la copie verticale faite seulement pour les Shorts
+  FMT=$(ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "$F" 2>/dev/null \
+        | awk -F, '{print ($1 >= $2) ? "HORIZONTAL" : "VERTICAL"}')
+  NAME="A-PUBLIER-montage-$SAFE-${FMT:-video}.mp4"
   ln -f "$F" "output/$NAME" 2>/dev/null || cp "$F" "output/$NAME"   # lien : pas de deuxième copie sur le disque
   # vidéo horizontale : le montage a aussi rendu une version VERTICALE propre → c'est elle qui part aux Shorts
   SNAME="$NAME"; EXTRA=()
   if [ -s output/montage-shorts-vertical.mp4 ]; then
-    SNAME="montage-$SAFE-vertical-shorts.mp4"
+    SNAME="pour-les-Shorts-seulement-$SAFE-vertical.mp4"
     ln -f output/montage-shorts-vertical.mp4 "output/$SNAME" 2>/dev/null || cp output/montage-shorts-vertical.mp4 "output/$SNAME"
     EXTRA=("output/$SNAME")
     echo "Version verticale pour les Shorts : $SNAME"
@@ -62,6 +65,7 @@ if [ "$MODE" = "publier" ]; then
   fi
 
   { echo "## $VERDICT"; echo; echo "🔗 **Chaîne \`$CHAINE_ID\`** — montage terminé ($(date -u +%d/%m/%Y)). Release supprimée automatiquement après 2 jours."
+    echo; echo "🎬 **Ta vidéo à publier : \`$NAME\`**$([ "$SNAME" != "$NAME" ] && echo " — l'autre fichier (\`$SNAME\`) sert seulement aux Shorts")"
     echo; echo "Les Shorts de ce montage arrivent dans Push-overlay, release \`$TAG\`."
     [ -n "${CHAINE_ORIGINE:-}" ] && echo "Fond vert : ${CHAINE_ORIGINE}"
     echo; echo "---"; echo; head -c 110000 output/PLAN.md; } > /tmp/notes-chaine.md
