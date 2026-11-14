@@ -721,6 +721,32 @@ def main(argv=None) -> int:
             qc.append((False, vert_note.lstrip("⚠ ")))
     if R.BRAND_FAILS:
         brand["notes"].append(f"⚠ logo absent sur {len(R.BRAND_FAILS)} passage(s) (rendu refait sans logo pour ne rien perdre)")
+    # 9) pack d'habillage de la chaîne (transitions, raccords, like / abonnement, écran de fin) : posé sur la vidéo
+    #    horizontale déjà montée et déjà contrôlée. Seulement si la chaîne de la vidéo a son pack (chaines/<code>/
+    #    habillage) ; jamais bloquant : au moindre souci, la vidéo normale est gardée telle quelle.
+    if orient == "h" and opts.get("pack", "oui") != "non":
+        try:
+            from . import pack as PK
+            pk_dir = PK.find((brand.get("profil") or {}).get("code", ""))
+            if pk_dir:
+                left_min = float(os.environ.get("MONTAGE_BUDGET_MIN", "320")) - (time.time() - T0) / 60
+                need_min = total / 60 * 1.0 + 5
+                if need_min > left_min:
+                    brand["notes"].append(f"🎬 pack d'animations non posé (temps restant {left_min:.0f} min, il en "
+                                          f"faudrait ~{need_min:.0f}) : vidéo normale gardée")
+                else:
+                    ev_ = PK.plan(segs, list(chap_times), words, total, Path(src).stem)
+                    ok_, why_ = PK.apply(final, ev_, pk_dir, work)
+                    if ok_:
+                        brand["notes"].append("🎬 pack d'animations de la chaîne : " + (", ".join(
+                            f"{e_['kind']} {e_.get('style', '')}".strip() + f" à {tc(e_['t'])}" for e_ in ev_) or
+                            "aucune animation placée") + " ; écran de fin de 20 s ajouté après ta vidéo")
+                    else:
+                        brand["notes"].append(f"⚠ pack d'animations non posé ({why_}) : vidéo normale gardée")
+                    log.info("Pack d'animations : %s", brand["notes"][-1])
+        except Exception as e:  # noqa: BLE001 - jamais bloquant
+            log.warning("pack d'animations impossible : %s", e)
+            brand.setdefault("notes", []).append(f"⚠ pack d'animations impossible ({type(e).__name__}) : vidéo normale gardée")
     brand["why"] = chaine_why
     write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, chap_times, ai, lot_info, qc, pause_stats,
                  kw_info, rythme_info, brand=brand, press_info=press_info, voice_info=voice_info, audio_note=audio_note)

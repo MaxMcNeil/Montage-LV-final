@@ -148,6 +148,7 @@ DEFAULTS = {
     "vitesse": "1",                 # 1 = normale ; 1.1 = 10 % plus rapide (0.8 à 1.5), appliquée avant le montage
     "habillage": "oui",             # oui (horizontal) : là où rien n'est prévu, toi dans ton cadre + carte de ta phrase
     "decor": "non",                 # retiré à ta demande (logo derrière toi) : jamais appliqué
+    "pack": "oui",                  # oui : animations du pack de la chaîne (chaines/<code>/habillage) sur la vidéo horizontale
     "format": "auto",               # auto = même format que ta vidéo | horizontal | vertical (forcé)
 }
 

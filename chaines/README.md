@@ -23,3 +23,12 @@ chaines/ar/…
 Habillage : petit logo en haut à droite (jamais sur ton visage ni sur les cadres) + grand logo sur la carte de fin
 (vidéos horizontales). Tout problème (logo absent, abîmé, sans transparence…) est écrit dans **PLAN.md** ;
 le montage n'échoue jamais à cause du logo.
+
+## Pack d'animations (`chaines/<code>/habillage/`)
+
+Si ce dossier existe et est complet, le Montage pose tout seul, sur la vidéo **horizontale** de cette chaîne :
+transition au changement de chapitre (3 au plus), raccord discret sur quelques coupes (3 au plus, espacés d'au moins
+1 min 30), invitation like / abonnement **une fois, sans son**, au-dessus des sous-titres, et l'écran de fin de 20 s
+collé après la vidéo. Jamais sur un extrait ni sur une carte. Le style et les moments changent d'une vidéo à l'autre.
+Sons graves et bas, aigus coupés au-dessus de 3,5 kHz. Vidéo verticale, Shorts, autre chaîne : rien ne change.
+Désactiver : réglage `pack: non`. Au moindre problème, la vidéo normale est gardée et PLAN.md le dit.
