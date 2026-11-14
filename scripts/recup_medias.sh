@@ -165,7 +165,7 @@ if [ "$N" -gt 0 ]; then
   rclone copy sources.tsv "$REMOTE:sources-medias" -q 2>/dev/null || true   # HORS montage-joints
 fi
 # vidéos refusées à GitHub : liste + demande pour ton téléphone (Termux : bash ~/tel_videos.sh veille)
-# remplacées à chaque lancement ; le Montage attend que le téléphone ait fini (20 min max)
+# remplacées à chaque lancement ; « Préparer les médias » attend lui-même que le téléphone ait fini (60 min max)
 rclone copyto a-telecharger.txt "$REMOTE:sources-medias/a-telecharger.txt" -q 2>/dev/null || true
 echo "${GITHUB_RUN_ID:-local} $(date +%s) $DOSSIER" > telephone-demande.txt
 rclone copyto telephone-demande.txt "$REMOTE:sources-medias/telephone-demande.txt" -q 2>/dev/null || true
@@ -176,8 +176,13 @@ if [ -s a-telecharger.txt ]; then
   if [ "$TEL" = ecoute ]; then
     echo "::notice title=📱 Téléphone::$(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) : ton téléphone (Termux en veille) s'en occupe tout seul. Rien à faire."
   else
-    echo "::warning title=📱 ACTION SUR TON TÉLÉPHONE::$(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) par YouTube. Ouvre Termux et tape :  bash ~/tel_videos.sh veille   (le Montage t'attend 20 min)"
+    echo "::warning title=📱 ACTION SUR TON TÉLÉPHONE::$(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) par YouTube. Ouvre Termux et tape :  bash ~/tel_videos.sh veille   (ce lancement t'attend 60 min)"
   fi
+fi
+# pour l'étape suivante du workflow (attente du téléphone) et le verdict final
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  NBQ=$(grep -c '[^[:space:]]' a-telecharger.txt 2>/dev/null || true)
+  { echo "bloquees=${NBQ:-0}"; echo "ok=$OK"; echo "ko=$KO"; } >> "$GITHUB_OUTPUT"
 fi
 
 {
@@ -189,10 +194,10 @@ fi
   if [ -s a-telecharger.txt ]; then
     echo; echo "### 📱 $(wc -l < a-telecharger.txt) vidéo(s) bloquée(s) par YouTube"
     if [ "$TEL" = ecoute ]; then
-      echo "✅ **Rien à faire** : ton téléphone (Termux en veille) les récupère tout seul, et le Montage l'attend."
+      echo "✅ **Rien à faire** : ton téléphone (Termux en veille) les récupère tout seul, et ce lancement l'attend."
     else
       echo "👉 **Ouvre Termux sur ton téléphone et tape :**"; echo; echo '```'; echo 'bash ~/tel_videos.sh veille'; echo '```'
-      echo "Le Montage t'attend **20 min** ; sinon il se fait sans ces vidéos."
+      echo "Ce lancement t'attend **60 min** (étape « 📱 TÉLÉPHONE »). Ne lance le Montage qu'au verdict final ci-dessous."
       echo; echo "Si Termux répond « No such file » (première fois), tape d'abord :"; echo
       echo '```'; echo 'curl -fsSL https://raw.githubusercontent.com/MaxMcNeil/Montage-LV-final/main/scripts/tel_videos.sh -o ~/tel_videos.sh'; echo '```'
     fi

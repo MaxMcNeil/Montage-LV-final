@@ -6,8 +6,9 @@ name: 📥 Préparer les médias — avant le Montage
 # 2) Pas de script sur Drive : liste du dépôt (champ « liste », ou la plus récente du dossier medias/) — sans aucune clé.
 # Dépose vidéos, photos libres et captures d'articles dans le dossier Drive montage-joints, prêts pour le Montage.
 # Vidéos : YouTube (Cloudflare WARP, jeton PO, tes cookies/proxy si présents, plusieurs clients), relais Invidious,
-# Dailymotion, archive.org ; ce qui reste bloqué → ton téléphone (Termux « bash ~/tel_videos.sh veille »), attendu par
-# le Montage 20 min max. Sinon simplement laissé de côté (montage sans).
+# Dailymotion, archive.org ; ce qui reste bloqué → ton téléphone (Termux « bash ~/tel_videos.sh veille ») : CE workflow
+# te le signale (étape « 📱 TÉLÉPHONE »), attend ton téléphone 60 min max et finit par un verdict :
+# ✅ TOUT EST PRÊT (lance le Montage) ou ❌ il manque des vidéos (lancement en rouge).
 on:
   workflow_dispatch:
     inputs:
@@ -31,7 +32,7 @@ concurrency:
 jobs:
   medias:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 170
     env:
       RCLONE_CONF: ${{ secrets.RCLONE_CONF }}
       YT_PROXY_URL: ${{ secrets.YT_PROXY_URL }}
@@ -126,6 +127,7 @@ jobs:
           fi
 
       - name: Récupérer et déposer sur Drive
+        id: recup
         env:
           SUJETS: ${{ inputs.sujets }}
           DOSSIER: ${{ inputs.dossier }}
@@ -147,3 +149,71 @@ jobs:
             && echo "Ton script est rangé dans Drive « sources-medias/scripts » (et la liste écrite y est aussi)." \
             || echo "::warning::script non déplacé : retire-le de montage-joints avant ton prochain live"
           rclone copyto auto-liste.txt "$REMOTE:sources-medias/scripts/$(date -u +%Y%m%d-%H%M)-liste.txt" -q || true
+
+      # Vidéos bloquées par YouTube : le NOM de cette étape te dit quoi faire, sans ouvrir le journal. Elle attend ton
+      # téléphone (60 min max) et s'arrête dès qu'il a fini. Termux déjà en veille → tout se fait tout seul.
+      - name: "📱 TÉLÉPHONE — vidéos bloquées : ouvre Termux et tape  bash ~/tel_videos.sh veille  (attente 60 min max)"
+        id: tel
+        if: success() && steps.recup.outputs.bloquees != '' && steps.recup.outputs.bloquees != '0'
+        env:
+          NB: ${{ steps.recup.outputs.bloquees }}
+        run: |
+          R=$(grep -m1 -oE '^\[[^]]+\]' ~/.config/rclone/rclone.conf | tr -d '[]'); SM="$R:sources-medias"
+          echo "📱 $NB vidéo(s) bloquée(s) par YouTube. Sur ton téléphone, dans Termux :"
+          echo "      bash ~/tel_videos.sh veille"
+          echo "(première fois : curl -fsSL https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/scripts/tel_videos.sh -o ~/tel_videos.sh)"
+          etat=attente
+          for i in $(seq 1 120); do
+            f=$(rclone cat "$SM/telephone-fini.txt" 2>/dev/null | head -1 || true)
+            if [ "${f%% *}" = "$GITHUB_RUN_ID" ]; then etat=fini; break; fi
+            if [ $((i % 10)) = 1 ]; then
+              vu=$(rclone cat "$SM/telephone-veille.txt" 2>/dev/null | head -1 | tr -dc 0-9 || true)
+              if [ -n "$vu" ] && [ $(( $(date +%s) - vu )) -lt 360 ]; then
+                echo "📱 Ton téléphone s'en occupe… (encore $(( (120 - i) / 2 )) min max)"
+              else
+                echo "::warning title=📱 ACTION SUR TON TÉLÉPHONE::$NB vidéo(s) bloquée(s). Ouvre Termux et tape :  bash ~/tel_videos.sh veille   (encore $(( (120 - i) / 2 )) min)"
+              fi
+            fi
+            sleep 30
+          done
+          ok=0; ko=$NB
+          if [ "$etat" = fini ]; then
+            ok=$(grep -oE 'ok=[0-9]+' <<< "$f" | cut -d= -f2 || true); ko=$(grep -oE 'ko=[0-9]+' <<< "$f" | cut -d= -f2 || true)
+            # compte illisible (ne devrait pas arriver) : on ne dit jamais « prêt » sans preuve
+            if [ -z "$ok" ] && [ -z "$ko" ]; then ok=0; ko=$NB; fi
+            ok=${ok:-0}; ko=${ko:-0}
+          fi
+          { echo "etat=$etat"; echo "ok=$ok"; echo "ko=$ko"; } >> "$GITHUB_OUTPUT"
+          echo "Téléphone : $etat — $ok récupérée(s), $ko manquante(s)"
+
+      # VERDICT : une seule ligne à lire avant de lancer le Montage. Rouge = il manque des vidéos.
+      - name: Verdict — tout est prêt pour le Montage ?
+        if: success()
+        env:
+          NB: ${{ steps.recup.outputs.bloquees }}
+          ETAT: ${{ steps.tel.outputs.etat }}
+          TOK: ${{ steps.tel.outputs.ok }}
+          TKO: ${{ steps.tel.outputs.ko }}
+          DOSSIER: ${{ inputs.dossier }}
+        run: |
+          R=$(grep -m1 -oE '^\[[^]]+\]' ~/.config/rclone/rclone.conf | tr -d '[]')
+          case "$DOSSIER" in *:*) D="$DOSSIER";; *) D="$R:$DOSSIER";; esac
+          liste() { echo; echo "Dans ton dossier Drive « $DOSSIER » :"; echo; rclone lsf "$D" --files-only 2>/dev/null | sed 's/^/- /' | head -80 || true; }
+          if [ -z "${NB:-}" ] || [ "$NB" = 0 ]; then
+            { echo "# ✅ TOUT EST PRÊT — tu peux lancer le Montage"; echo "Aucune vidéo bloquée."; liste; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=✅ TOUT EST PRÊT::Tu peux lancer le Montage."; exit 0
+          fi
+          if [ "$ETAT" = fini ] && [ "${TKO:-0}" = 0 ]; then
+            { echo "# ✅ TOUT EST PRÊT — tu peux lancer le Montage"; echo "Ton téléphone a récupéré les $TOK vidéo(s) bloquée(s)."; liste; } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice title=✅ TOUT EST PRÊT::Téléphone : $TOK vidéo(s) récupérée(s). Tu peux lancer le Montage."; exit 0
+          fi
+          if [ "$ETAT" = fini ]; then MSG="Ton téléphone a fini, mais ${TKO} vidéo(s) n'ont pas pu être récupérées (${TOK} récupérée(s))."
+          else MSG="Ton téléphone n'a rien déposé en 60 min : $NB vidéo(s) bloquée(s) manquent."; fi
+          {
+            echo "# ❌ IL MANQUE DES VIDÉOS"; echo "$MSG"; echo
+            echo "Vidéos concernées :"; echo; rclone cat "$R:sources-medias/a-telecharger.txt" 2>/dev/null | sed 's/^/- /' | head -40 || true
+            echo; echo "Tu peux quand même lancer le Montage : il se fera **sans** ces vidéos. Pour les avoir : Termux → \`bash ~/tel_videos.sh veille\`, puis relance « Préparer les médias »."
+            liste
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error title=❌ IL MANQUE DES VIDÉOS::$MSG Le Montage peut être lancé, mais se fera sans elles."
+          exit 1

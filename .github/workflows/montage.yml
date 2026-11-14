@@ -177,7 +177,7 @@ jobs:
         run: echo "JOB_T0=$(date +%s)" >> "$GITHUB_ENV"
 
       # Tu peux lancer le Montage juste avant ou juste après « Préparer les médias » : il attend qu'il ait fini
-      # (95 min max, sa durée maximale) avant de lire le dossier montage-joints. Rien ne tourne → aucune attente.
+      # (téléphone compris : 150 min max) avant de lire le dossier montage-joints. Rien ne tourne → aucune attente.
       - name: Attendre « Préparer les médias » s'il tourne encore
         env:
           GH_TOKEN: ${{ github.token }}
@@ -187,56 +187,47 @@ jobs:
           # lancé AVANT « Préparer les médias » ? s'il n'y en a eu aucun depuis 3 h, on laisse 90 s pour qu'il apparaisse
           recent=$(gh api "$API" --jq "[.workflow_runs[] | select((.created_at | fromdateiso8601) > $((now - 10800)))] | length" 2>/dev/null || echo 1)
           grace=0; [ "${recent:-1}" = 0 ] && grace=3
-          for i in $(seq 1 190); do
+          for i in $(seq 1 300); do
             n=$(gh api "$API" --jq '[.workflow_runs[] | select(.status != "completed")] | length' 2>/dev/null || echo 0)
             if [ "${n:-0}" = 0 ]; then
               [ "$i" -gt "$grace" ] && break
             else
-              [ "$attendu" = 0 ] && echo "::notice title=Montage::« Préparer les médias » tourne : le montage attend qu'il ait fini (95 min max)…"
+              [ "$attendu" = 0 ] && echo "::notice title=Montage::« Préparer les médias » tourne : le montage attend qu'il ait fini, téléphone compris (150 min max)…"
               attendu=1
             fi
             sleep 30
           done
-          [ "${n:-0}" = 0 ] || echo "::warning title=Montage::« Préparer les médias » dure plus de 95 min : le montage démarre avec ce qui est déjà dans montage-joints."
+          [ "${n:-0}" = 0 ] || echo "::warning title=Montage::« Préparer les médias » dure plus de 150 min : le montage démarre avec ce qui est déjà dans montage-joints."
           # résultat de la dernière préparation (si elle date de moins de 3 h)
           r=$(gh api "$API" --jq "[.workflow_runs[] | select(.status == \"completed\" and ((.created_at | fromdateiso8601) > $((now - 10800))))][0] | \"\(.conclusion) \(.html_url)\"" 2>/dev/null || true)
           case "$r" in
             success*) echo "### 📥 Préparer les médias : ✅ terminé — [voir]( ${r#* })" >> "$GITHUB_STEP_SUMMARY"; echo "« Préparer les médias » terminé (réussi) : le montage démarre." ;;
             null*|"") : ;;
-            *) echo "::warning title=Montage::« Préparer les médias » a échoué (${r%% *}) : le montage utilise ce qui est déjà dans montage-joints."
+            *) echo "::warning title=Montage::« Préparer les médias » a fini en rouge (${r%% *} : il manquait des vidéos, ou un échec) : le montage utilise ce qui est dans montage-joints."
                echo "### 📥 Préparer les médias : ⚠ ${r%% *} — [voir]( ${r#* })" >> "$GITHUB_STEP_SUMMARY" ;;
           esac
 
-      # Vidéos bloquées par YouTube → ton téléphone (Termux « veille ») les dépose : le montage l'attend 20 min max.
-      - name: Attendre ton téléphone s'il récupère des vidéos bloquées
+      # Vidéos bloquées par YouTube : c'est « Préparer les médias » qui attend ton téléphone (60 min) et donne le verdict.
+      # Ici on ne fait que le rappeler, sans attendre : quand tu lances le Montage, tout doit déjà être prêt.
+      - name: Vidéos bloquées — rappel du verdict de « Préparer les médias » (aucune attente)
         if: env.RCLONE_CONF != ''
+        continue-on-error: true
         run: |
           command -v rclone >/dev/null || curl -sSf --retry 3 https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || true
           command -v rclone >/dev/null || exit 0
           mkdir -p ~/.config/rclone && printf '%s\n' "$RCLONE_CONF" > ~/.config/rclone/rclone.conf
           R=$(grep -m1 -oE '^\[[^]]+\]' ~/.config/rclone/rclone.conf | tr -d '[]'); SM="$R:sources-medias"
           read -r run t _ <<< "$(rclone cat "$SM/telephone-demande.txt" 2>/dev/null | head -1)"
-          [ -n "${run:-}" ] && [ $(( $(date +%s) - ${t:-0} )) -lt 10800 ] || exit 0          # pas de préparation récente
+          [ -n "${run:-}" ] && [ $(( $(date +%s) - ${t:-0} )) -lt 21600 ] || exit 0          # pas de préparation récente
           nb=$(rclone cat "$SM/a-telecharger.txt" 2>/dev/null | grep -c '[^[:space:]]' || true)
           [ "${nb:-0}" -gt 0 ] || exit 0                                                       # rien de bloqué
-          for i in $(seq 1 40); do
-            f=$(rclone cat "$SM/telephone-fini.txt" 2>/dev/null | head -1)
-            if [ "${f%% *}" = "$run" ]; then
-              echo "📱 Ton téléphone a fini : ${f#* * } — le montage démarre."
-              echo "### 📱 Téléphone : vidéos bloquées récupérées (${f#* * })" >> "$GITHUB_STEP_SUMMARY"; exit 0
-            fi
-            vu=$(rclone cat "$SM/telephone-veille.txt" 2>/dev/null | head -1 | tr -dc 0-9)
-            if [ $((i % 10)) = 1 ]; then
-              if [ -n "$vu" ] && [ $(( $(date +%s) - vu )) -lt 360 ]; then
-                echo "📱 $nb vidéo(s) bloquée(s) : ton téléphone s'en occupe, le montage attend ($(( (40 - i) / 2 )) min max)…"
-              else
-                echo "::warning title=📱 ACTION SUR TON TÉLÉPHONE::$nb vidéo(s) bloquée(s) par YouTube. Ouvre Termux et tape :  bash ~/tel_videos.sh veille   (le montage t'attend encore $(( (40 - i) / 2 )) min)"
-              fi
-            fi
-            sleep 30
-          done
-          echo "::warning title=Montage::Téléphone pas de retour en 20 min : le montage se fait sans les $nb vidéo(s) bloquée(s)."
-          echo "### 📱 Téléphone : pas de retour en 20 min — montage sans $nb vidéo(s) bloquée(s)" >> "$GITHUB_STEP_SUMMARY"
+          f=$(rclone cat "$SM/telephone-fini.txt" 2>/dev/null | head -1 || true)
+          if [ "${f%% *}" = "$run" ]; then
+            echo "### 📱 Téléphone : vidéos bloquées déposées (${f#* * })" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning title=Montage::$nb vidéo(s) bloquée(s) par YouTube n'ont pas été déposées par ton téléphone : le montage se fait sans elles."
+            echo "### 📱 $nb vidéo(s) bloquée(s) non déposées — montage sans elles" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - uses: actions/checkout@v5
 
