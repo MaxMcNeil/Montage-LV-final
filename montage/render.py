@@ -10,7 +10,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import subprocess
 import threading
 import wave
 from concurrent.futures import ThreadPoolExecutor
@@ -348,70 +347,40 @@ def freeze(ctx: Ctx, t: float, out: Path) -> Path:
     return out
 
 
-_CALM_LOCK = __import__("threading").Lock()
+_ECOUTE_LOCK = __import__("threading").Lock()
 
 
-def _calm_silences(ctx: Ctx) -> list:
-    """Tes silences où tu es VRAIMENT calme (bouche immobile) : mouvement mesuré sur ta bouche, image par image.
-    Calculé une fois par montage. [(début, fin, mouvement)] du plus calme au moins calme."""
-    with _CALM_LOCK:
-        if getattr(ctx, "_calm", None) is not None:
-            return ctx._calm
-        import numpy as np
-        q = sorted([(a, b) for a, b in (ctx.info.get("quiet") or []) if b - a >= 1.3],
-                   key=lambda x: -(x[1] - x[0]))[:30]
-        f = ctx.face or {}
-        sw, sh = int(ctx.sw), int(ctx.sh)
-        fh = float(f.get("fh") or 0.3) * sh
-        mx, my = float(f.get("cx", 0.5)) * sw, float(f.get("cy", 0.38)) * sh + 0.27 * fh
-        bw, bh = max(16, int(0.55 * fh)) // 2 * 2, max(12, int(0.30 * fh)) // 2 * 2
-        x0 = int(min(max(0, mx - bw / 2), sw - bw))
-        y0 = int(min(max(0, my - bh / 2), sh - bh))
-        out = []
-        for a, b in q:
-            m0, d = (a + b) / 2 - min(1.2, (b - a) / 2 - 0.2), min(2.4, b - a - 0.4)
-            try:
-                r = subprocess.run(["ffmpeg", "-v", "error", "-ss", f"{m0:.3f}", "-t", f"{d:.3f}", "-i", str(ctx.src),
-                                    "-vf", f"crop={bw}:{bh}:{x0}:{y0},scale=64:36,fps=12,format=gray",
-                                    "-f", "rawvideo", "-"], capture_output=True, timeout=60)
-                fr = np.frombuffer(r.stdout, np.uint8)
-                n = fr.size // (64 * 36)
-                if n < 6:
-                    continue
-                fr = fr[:n * 64 * 36].reshape(n, 36, 64).astype(np.float32)
-                motion = float(np.abs(np.diff(fr, axis=0)).mean())
-                out.append((m0, m0 + d, motion))
-            except Exception:  # noqa: BLE001
-                continue
-        out.sort(key=lambda x: x[2])
-        if out:
-            log.info("toi qui écoutes : %d silence(s) mesuré(s), le plus calme bouge de %.2f, le moins calme de %.2f",
-                     len(out), out[0][2], out[-1][2])
-        ctx._calm = out
-        return out
+def _ecoute(ctx: Ctx):
+    with _ECOUTE_LOCK:
+        if getattr(ctx, "_ecoute", None) is None:
+            from .ecoute import Ecoute
+            ctx._ecoute = Ecoute(ctx.src, ctx.work)
+        return ctx._ecoute
 
 
-def listen_clip(ctx: Ctx, t: float, out: Path) -> Path | None:
-    """Toi qui ÉCOUTES pendant un extrait (jamais une image figée) : un de tes silences où ta bouche est IMMOBILE
-    (mesuré), le plus proche de ce moment parmi les plus calmes, ralenti puis joué aller-retour (aucun saut).
-    None si aucun silence vraiment calme (repli : image fixe, comme avant)."""
-    calm = _calm_silences(ctx)
-    if not calm:
+def listen_clip(ctx: Ctx, t: float, out: Path, dur: float = 0.0) -> Path | None:
+    """Toi qui ÉCOUTES pendant un extrait (voir ecoute.py) : plusieurs vrais moments où ta bouche est FERMÉE (mesurée),
+    toujours en avant, légèrement ralentis, reliés par des fondus — jamais d'aller-retour, jamais une bouche qui bat.
+    None → image fixe de toi bouche fermée (listen_still)."""
+    if dur <= 0:
         return None
-    best = calm[0][2]
-    ok = [c for c in calm if c[2] <= max(best * 1.6, best + 0.6)][:5]   # seulement les plus calmes
-    if not ok or best > 6.0:   # même ton silence le plus calme bouge trop : image fixe plutôt qu'une bouche qui bat
-        return None
-    a0, b0, _ = min(ok, key=lambda c: abs((c[0] + c[1]) / 2 - t))
-    d = b0 - a0
     try:
-        run(["ffmpeg", "-y", "-ss", f"{a0:.3f}", "-t", f"{d:.3f}", "-i", ctx.src, "-filter_complex",
-             f"[0:v]fps={FPS},{ctx.full_chain(1.0)},setpts=1.5*PTS,fps={FPS},split[lf][lr];[lr]reverse[lrv];"
-             f"[lf][lrv]concat=n=2:v=1:a=0,format=yuv420p[v]", "-map", "[v]", "-an",
-             "-c:v", "libx264", "-preset", "veryfast", "-crf", "18", str(out)], timeout=300)
-        return out if out.exists() and out.stat().st_size > 1000 else None
+        from .ecoute import build
+        e = _ecoute(ctx)
+        return build(ctx, e.pick(dur, t), dur, out)
     except Exception as e:  # noqa: BLE001
-        log.warning("toi qui écoutes (silence %.1f s) impossible : %s → image fixe", a0, str(e)[-200:])
+        log.warning("toi qui écoutes impossible (%s) → image fixe bouche fermée", str(e)[-200:])
+        return None
+
+
+def listen_still(ctx: Ctx, t: float, out: Path) -> Path | None:
+    """Image de toi BOUCHE FERMÉE (mesurée) la plus proche de ce moment ; None si la mesure n'est pas disponible."""
+    try:
+        from .ecoute import best_frame
+        tb = best_frame(_ecoute(ctx).data(), t)
+        return freeze(ctx, tb, out) if tb is not None else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("image bouche fermée impossible (%s)", str(e)[-200:])
         return None
 
 
@@ -432,7 +401,7 @@ INSERT_NOTES: list = []   # extraits du milieu qui n'ont pas pu être encadrés 
 
 
 def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, opener: bool = True,
-                   listen: Path | None = None):
+                   listen: Path | None = None, still: Path | None = None):
     """Ouverture choc JAMAIS en plein écran (règle YouTube contenu réutilisé / monétisation) :
       cadre : toi (image de ta 1re prise, très lent zoom) dans ton cadre arrondi + l'extrait dans un cadre arrondi à
               côté (horizontal) ou dessous (vertical), sur ton fond flouté teinté bleu nuit — sobre, pas « bling » ;
@@ -446,10 +415,10 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
     g = Graph()
     i_clip = g.inp("-i", ins["video"])
     lc = listen if mode == "cadre" else None
-    if lc:   # toi qui écoutes (tes silences, aller-retour en boucle) — jamais figé
-        i_a = g.inp("-stream_loop", "-1", "-t", f"{tdur:.3f}", "-i", lc)
-    else:
-        i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", pa)
+    if lc:   # toi qui écoutes : vrais moments bouche fermée, en avant, aussi longs que l'extrait (aucune boucle)
+        i_a = g.inp("-t", f"{tdur:.3f}", "-i", lc)
+    else:    # image de toi bouche fermée (mesurée), sinon ta dernière image
+        i_a = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", still or pa)
     i_b = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pb)
     norm = f"fps={FPS},settb=1/{FPS},format=yuv420p"
     dout = min(0.45, N / FPS / 4)
@@ -516,16 +485,17 @@ def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int
     opener = bool(seg.insert.get("opener"))
     pa = freeze(ctx, prev_t, ctx.work / f"freeze_{k}_a.png")
     pb = freeze(ctx, next_t, ctx.work / f"freeze_{k}_b.png")
-    listen = listen_clip(ctx, prev_t, ctx.work / f"listen_{k}.mp4")
+    listen = listen_clip(ctx, prev_t, ctx.work / f"listen_{k}.mp4", N / FPS + 1)
+    still = None if listen else listen_still(ctx, prev_t, ctx.work / f"freeze_{k}_ecoute.png")
     if opener:   # ouverture choc : jamais en plein écran — toi visible à côté, sinon extrait réduit sur ton fond
         for mode in ("cadre", "simple"):
             try:
                 try:
-                    _opener_framed(seg, ctx, out, pa, pb, mode, listen=listen)
+                    _opener_framed(seg, ctx, out, pa, pb, mode, listen=listen, still=still)
                 except Exception:  # noqa: BLE001 - toi qui écoutes en échec : même habillage, image fixe
                     if not listen:
                         raise
-                    _opener_framed(seg, ctx, out, pa, pb, mode)
+                    _opener_framed(seg, ctx, out, pa, pb, mode, still=still)
                 OPENER_NOTES.append("ouverture choc habillée : " + (
                     "toi dans ton cadre + l'extrait dans un cadre à côté (jamais en plein écran)" if mode == "cadre"
                     else "extrait réduit à 80 % sur ton fond (le cadre n'a pas pu être fait)"))
@@ -538,11 +508,11 @@ def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int
     for mode in ("cadre", "simple"):
         try:
             try:
-                _opener_framed(seg, ctx, out, pa, pb, mode, opener=False, listen=listen)
+                _opener_framed(seg, ctx, out, pa, pb, mode, opener=False, listen=listen, still=still)
             except Exception:  # noqa: BLE001 - toi qui écoutes en échec : même habillage, image fixe
                 if not listen:
                     raise
-                _opener_framed(seg, ctx, out, pa, pb, mode, opener=False)
+                _opener_framed(seg, ctx, out, pa, pb, mode, opener=False, still=still)
             if mode == "simple":
                 INSERT_NOTES.append(f"extrait à {seg.out0:.0f} s : réduit à 80 % (le cadre n'a pas pu être fait)")
             return

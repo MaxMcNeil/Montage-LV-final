@@ -283,6 +283,19 @@ jobs:
           [ "$ok" = 1 ] || { echo "::error::Installation des outils Python impossible (PyPI injoignable ?) : relance le run"; exit 1; }
           pip install -q -U yt-dlp || echo "::warning::mise à jour de yt-dlp impossible (version déjà installée utilisée)"
 
+      # Toi qui écoutes pendant un extrait : mesure de ta bouche (vrais moments bouche fermée). MediaPipe dans SON
+      # environnement (il apporte sa propre version d'OpenCV, qui ne doit jamais remplacer celle du montage).
+      # Jamais bloquant : sans lui, image de toi fixe pendant l'extrait (jamais une bouche qui bat).
+      - name: Mesure de ta bouche (MediaPipe, environnement séparé) — jamais bloquant
+        continue-on-error: true
+        run: |
+          python3 -m venv "$RUNNER_TEMP/mpenv" \
+            && for i in 1 2 3; do timeout 300 "$RUNNER_TEMP/mpenv/bin/pip" install -q "mediapipe==0.10.32" && break; sleep 10; done \
+            && "$RUNNER_TEMP/mpenv/bin/python" -c "import mediapipe" \
+            && echo "MP_PYTHON=$RUNNER_TEMP/mpenv/bin/python" >> "$GITHUB_ENV" \
+            && echo "Mesure de la bouche : prête" \
+            || echo "::notice::MediaPipe indisponible ce lancement : pendant les extraits, image fixe de toi (aucune boucle)"
+
       - name: Caches (modèle de transcription locale, réponses IA, état des quotas)
         uses: actions/cache@v5
         with:
