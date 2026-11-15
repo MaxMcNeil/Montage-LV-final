@@ -434,7 +434,7 @@ class Habillage:
         box(cam, fill=(0, 0, 0, 0), line=CYAN + (100,))
         corners(cam)
         lab = tr(L, "cam")
-        fla = font("mono", 28, lab)
+        fla = font("mono", 32, lab)
         d.rectangle((cam[0] + 14, cam[1] + 12, cam[0] + 58 + int(width(d, lab, fla)), cam[1] + 56), fill=(0, 0, 0, 180))
         d.ellipse((cam[0] + 24, cam[1] + 27, cam[0] + 38, cam[1] + 41), fill=(255, 59, 59, 255))
         text(d, (cam[0] + 48, cam[1] + 34), lab, fla, (232, 251, 255, 255), "lm")
@@ -443,7 +443,7 @@ class Habillage:
         b1 = (sx, 326, sw, 250)
         box(b1)
         h4 = tr(L, "doss")
-        text(d, (sx + 18, 346), h4, font("display", 32, h4), CYAN + (255,))
+        text(d, (sx + 18, 346), h4, font("display", 36, h4), CYAN + (255,))
         big = f"{k + 1:02d}/{self.n:02d}"
         text(d, (sx + 18, 396), big, font("display", 84, big), AMBER + (255,))
         seg_w = (sw - 36 - 6 * (min(self.n, 10) - 1)) / max(1, min(self.n, 10))
@@ -455,8 +455,8 @@ class Habillage:
         box(b2)
         if self.places:
             h4 = tr(L, "zones")
-            text(d, (sx + 18, 614), h4, font("display", 32, h4), CYAN + (255,))
-            self._radar = (sx + (sw - 200) // 2, 664, 200)
+            text(d, (sx + 18, 614), h4, font("display", 36, h4), CYAN + (255,))
+            self._radar = (sx + (sw - 180) // 2, 660, 180)
             rx, ry, rd = self._radar
             for rr, a in ((rd // 2, 160), (rd // 3, 110), (rd // 6, 90)):
                 cx_, cy_ = rx + rd // 2, ry + rd // 2
@@ -467,11 +467,11 @@ class Habillage:
                 px_, py_ = rx + rd // 2 + dist * math.cos(ang), ry + rd // 2 + dist * math.sin(ang)
                 col = (255, 59, 59, 255) if j == 0 else AMBER + (255,)
                 d.ellipse((px_ - 8, py_ - 8, px_ + 8, py_ + 8), fill=col)
-            yy = 876
+            yy = 844
             for p in self.places[:2]:
-                fpl, lpl = fit_lines(d, p.upper(), "mono", sw - 36, 26, 20, 1)
+                fpl, lpl = fit_lines(d, p.upper(), "display", sw - 36, 36, 30, 1)
                 text(d, (sx + 18, yy), lpl[0], fpl, (191, 233, 228, 255))
-                yy += 30
+                yy += 38
         else:
             self._radar = None
             h4 = tr(L, "suiv") if k + 1 < self.n else tr(L, "fin")
@@ -495,7 +495,7 @@ class Habillage:
                 d.rectangle((mx + 18, yy, mx + mw - 18, yy + 72),
                             fill=(255, 176, 32, 36) if on else (5, 20, 24, 180), outline=(AMBER + (255,)) if on else CYAN + (70,),
                             width=2)
-                fnum = font("mono", 30, "0")
+                fnum = font("mono", 34, "0")
                 text(d, (mx + 34, yy + 36), f"{j + 1:02d}", fnum, (AMBER + (255,)) if on else CYAN + (200,), "lm")
                 if on:      # sujet en cours : triangle « lecture »
                     d.polygon([(mx + 98, yy + 24), (mx + 98, yy + 48), (mx + 118, yy + 36)], fill=AMBER + (255,))

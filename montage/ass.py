@@ -186,6 +186,10 @@ class ASS:
         lh = int(fs * 1.18)
         half = (len(lines) * lh + 90) // 2
         y = self.text_band_y(half)
+        if self.theme and self.o == "v":     # habillage vertical : sur la zone du média (jamais sous l'interface YouTube)
+            from .habillage_v import LAYOUT
+            mx, my, mw, mh = LAYOUT[self.theme]["media"]
+            y = my + mh // 2
         top, bot = y - half, y + half
         self.add(t0, t1, "Box", r"{\an7\pos(0,0)\fad(250,300)\1a&H26&\p1}" +
                  f"m 0 {top} l {W} {top} l {W} {bot} l 0 {bot}" + r"{\p0}", layer=1)
