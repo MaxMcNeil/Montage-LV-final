@@ -9,6 +9,48 @@ Tu déposes ta vidéo face caméra (horizontale ou verticale) avec, si tu veux, 
 GitHub la **transcrit**, **comprend ce que tu dis**, puis **monte** la vidéo : photos, articles, chiffres et
 extraits vidéo arrivent **au moment exact où tu en parles**. Tout est gratuit et tourne sur GitHub.
 
+## 🎙 Mode « commentaire d'une vidéo » — pas à pas
+
+Tu commentes la vidéo de quelqu'un d'autre. Elle reste **à l'écran tout le temps** (la moitié de l'écran), **en pause**
+avec le titre du passage qui arrive, et **chaque fois que tu dis « écoutez ça »** elle repart sur le bon passage.
+
+**1. Dépose la vidéo à commenter** dans ton dossier Google Drive **`montage-joints`** (n'importe quel nom, sauf
+« moi… »). Tu peux y laisser aussi tes photos et autres vidéos, comme d'habitude.
+
+**2. Lance le prompteur** — dépôt *OSINT-teleprompter-* → Actions → **Générer le script** → `mode` =
+**commentaire d'une vidéo** → *Run workflow*. Il :
+- lit la vidéo dans `montage-joints` **sans la déplacer ni la supprimer** ;
+- choisit l'**ouverture choc** (le moment le plus fort) et **les passages** (8 à 25 s chacun, phrases entières) ;
+- écrit ton script : intro, puis pour chaque passage une annonce, **🎬 ÉCOUTEZ ÇA !**, ta réaction, et la conclusion ;
+- dépose dans `montage-joints` le fichier **`commentaire-passages.json`** (la liste exacte des passages, pour le Montage).
+> Une seule fois avant : dans Termux,
+> `gh secret set RCLONE_CONF --repo MaxMcNeil/OSINT-teleprompter- < "$(rclone config file | tail -1)"`
+
+**3. Filme-toi** en lisant le script. Dis bien **« écoutez ça »** à chaque 🎬, puis **marque une petite pause**.
+Le texte entre [ crochets ] ne se lit pas (c'est ce qu'on va entendre).
+
+**4. Fond vert / beauté** — comme d'habitude. En chaîne : choisis `🔗 Chaîne — mode du Montage` =
+**commentaire d'une vidéo**.
+
+**5. Montage** — (sans chaîne) Actions → **Montage final** → `mode` = **commentaire d'une vidéo** → *Run workflow*.
+
+**Ce que tu obtiens :**
+- l'**ouverture choc** de la vidéo commentée, avant que tu apparaisses ;
+- toi + la vidéo commentée **en pause à côté de toi** dès ta première seconde (⏸ + titre du passage qui suit) ;
+- à chaque « écoutez ça » : le passage joue, toi qui écoutes à côté ; puis retour en pause sur le passage suivant ;
+- habillage, transitions, effets et **écran de fin** comme d'habitude ; **pas de Shorts** dans ce mode.
+
+**Blindé :** le 1er « écoutez ça » = le 1er passage, le 2e = le 2e, etc. Si tu en sautes un, ta phrase d'annonce
+(comparée à celle du script) recale la suite. Un « écoutez ça » en trop ne lance **rien** (jamais un passage hors sujet,
+jamais un écran vide). **PLAN.md** liste chaque « écoutez ça » entendu → passage joué (ou pourquoi rien), et les
+passages oubliés. Sans `commentaire-passages.json`, le montage se fait normalement et PLAN.md le dit.
+
+**Après un montage réussi**, la vidéo commentée et sa liste sont **rangées** avec tes autres pièces jointes
+(`montage-joints-utilises`, option « reprendre » pour une relance).
+
+> 🧪 Un essai lancé sur une **branche** (pas `main`) ne lit ni ne vide `montage-joints`, et son résultat va dans la
+> release **out-montage-essai** : ton vrai dernier montage reste intact.
+
 ## 📥 Déposer une vidéo (depuis le téléphone)
 
 *Releases → Draft a new release → Choose a tag* : tape `montage-001` (puis `montage-002`…) → *Create new tag*.

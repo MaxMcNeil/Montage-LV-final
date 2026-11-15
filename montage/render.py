@@ -283,7 +283,18 @@ def render_split(seg, ctx: Ctx, out: Path):
         g.add(f"[{im_frame}:v]format=rgba[pn]")
     t_in, d_in, d_out = 0.18, 0.62, 0.45
     t_out = max(t_in + d_in + 0.2, D - d_out - 0.12)
-    g.add(f"[pn]fade=t=in:st={t_in}:d={d_in * 0.7:.3f}:alpha=1,fade=t=out:st={t_out:.3f}:d={d_out}:alpha=1[pf]")
+    # mode commentaire : la vidéo commentée reste à l'écran d'un plan à l'autre (ni glissement, ni fondu de la carte
+    # quand le plan voisin la montre déjà, ou quand on sort / entre dans un passage joué au même endroit)
+    sp = seg.panel or {}
+    still_in = bool(sp.get("persistent") and (sp.get("cont_in") or sp.get("after_insert")))
+    still_out = bool(sp.get("persistent") and (sp.get("cont_out") or sp.get("before_insert")))
+    if still_in:
+        t_in, d_in = -10.0, 0.001
+    if still_out:
+        t_out = D + 10
+    fades = ([] if still_in else [f"fade=t=in:st={t_in}:d={d_in * 0.7:.3f}:alpha=1"]) + \
+        ([] if still_out else [f"fade=t=out:st={t_out:.3f}:d={d_out}:alpha=1"])
+    g.add(f"[pn]{','.join(fades) or 'null'}[pf]")
     x1 = ox
     if ctx.o == "h":
         x0 = W + 40 if seg.side == "left" else -fw - 40
@@ -302,8 +313,16 @@ def render_split(seg, ctx: Ctx, out: Path):
     g.add(f"[b4]{norm}[comp]")
     g.add(f"[cfa]trim=end_frame={fa_n + 2},setpts=PTS-STARTPTS,{norm}[fa]")
     g.add(f"[cfb]trim=start_frame={N - fb_n},setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=1,{norm}[fb]")
-    g.add(f"[fa][comp]xfade=transition=fade:duration={fa_n / FPS:.4f}:offset=0[x1]")
-    g.add(f"[x1][fb]xfade=transition=fade:duration={fb_n / FPS:.4f}:offset={(N - fb_n) / FPS:.4f}[x2]")
+    if still_in:     # (mode commentaire) déjà dans cette mise en page : pas de fondu depuis le plein cadre
+        g.add("[fa]nullsink")
+        g.add("[comp]null[x1]")
+    else:
+        g.add(f"[fa][comp]xfade=transition=fade:duration={fa_n / FPS:.4f}:offset=0[x1]")
+    if still_out:
+        g.add("[fb]nullsink")
+        g.add("[x1]null[x2]")
+    else:
+        g.add(f"[x1][fb]xfade=transition=fade:duration={fb_n / FPS:.4f}:offset={(N - fb_n) / FPS:.4f}[x2]")
     g.add(f"[x2]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
     g.run(out, N, "out", out.with_suffix(".txt"))
 
@@ -465,7 +484,8 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
         g.add(f"[cl]scale={vw}:{vh}:force_original_aspect_ratio=decrease:flags=bicubic,setsar=1[clv]")
         g.add(f"[bg][clv]overlay=x=(W-w)/2:y=(H-h)/2:shortest=1,{norm}[x1]")
     g.add(f"[{i_b}:v]{norm}[fb]")
-    if not opener:   # extrait au milieu : fondu doux depuis ton plan (pas de coupe sèche)
+    com = bool(ins.get("_com"))   # mode commentaire : la vidéo « repart » / « se met en pause » sur place (coupe nette)
+    if not opener and not com:   # extrait au milieu : fondu doux depuis ton plan (pas de coupe sèche)
         din = min(0.5, N / FPS / 4)
         i_a2 = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pa)
         g.add(f"[{i_a2}:v]{norm}[fa]")
@@ -474,7 +494,11 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
         x1 = "x1c"
     else:
         x1 = "x1"
-    g.add(f"[{x1}][fb]xfade=transition=fade:duration={dout:.3f}:offset={N / FPS - dout:.4f}[x2]")
+    if com:
+        g.add("[fb]nullsink")
+        g.add(f"[{x1}]null[x2]")
+    else:
+        g.add(f"[{x1}][fb]xfade=transition=fade:duration={dout:.3f}:offset={N / FPS - dout:.4f}[x2]")
     g.add(f"[x2]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
     g.run(out, N, "out", out.with_suffix(".txt"))
 

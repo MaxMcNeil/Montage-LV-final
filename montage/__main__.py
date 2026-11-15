@@ -80,6 +80,12 @@ def options(path: str | None) -> dict:
         if o.get("sous_titres") != "non":
             log.info("Chaîne : sous-titres de la vidéo montée forcés à « non » (verrou)")
         o["sous_titres"] = "non"
+    # MODE COMMENTAIRE D'UNE VIDÉO : la vidéo commentée est le seul extrait (ouverture + « écoutez ça » du script) ;
+    # pas de recherche, pas de cartes d'habillage ni de remplissage : elle reste en pause à côté de toi
+    o["mode"] = "commentaire" if str(o.get("mode") or "").startswith("comment") else "normal"
+    if o["mode"] == "commentaire":
+        o.update(ouverture_choc="non", mots_cles="non", habillage="non", rythme="non", recherche_presse="non",
+                 finder="non")
     # 🔒 RECHERCHE LÉGÈRE (une seule clé Gemini) : presse / vidéos / Telegram / Reddit oui, mais économe — au plus
     # 4 affirmations, aucune vidéo regardée ni article lu par Gemini, plafond de demandes à l'IA par recherche.
     # Le lot Finder n'est plus repris. Recherche complète (ancienne) : variable de dépôt MONTAGE_RECHERCHE_AUTORISEE = oui.
@@ -252,8 +258,30 @@ def main(argv=None) -> int:
     def label_for(x, a0_, b0_):
         return passage_label(ai, x, a0_, b0_, lang, work, x.get("label") or _pretty(x["name"]))
 
-    # 4·0) ouverture choc : choisie en premier, son passage n'est plus réutilisé ensuite
+    # 4·C) MODE COMMENTAIRE : ouverture + un passage par « écoutez ça », d'après la liste du prompteur
     opener = None
+    com_info = None
+    if opts.get("mode") == "commentaire":
+        from . import commentaire as COM
+        COM.mise_en_page(orient)   # la vidéo commentée : plus de la moitié de l'écran, toujours au même endroit
+        com_data = COM.charger(Path(os.environ.get("COMMENTAIRE_PASSAGES", "input/commentaire-passages.json")))
+        if not com_data:
+            com_info = {"erreur": "liste des passages du prompteur absente (commentaire-passages.json dans "
+                                  "montage-joints) : montage fait comme d'habitude, sans « écoutez ça » automatiques"}
+            log.warning("Commentaire : %s", com_info["erreur"])
+        else:
+            try:
+                opener, com_ins, com_info = COM.preparer(ai, words, sents, att, tr, quiet, orient, work, lang, com_data,
+                                                         label_for)
+                x_c = next((x for x in att if x["name"] == com_info.get("video")), None)
+                if x_c:   # la vidéo commentée ne sert QU'aux passages du script (aucun autre extrait tiré d'elle)
+                    plan["inserts"] = [i for i in plan["inserts"] if i.get("attachment") != x_c["id"]]
+                    used.setdefault(x_c["id"], []).extend(i["clip"] for i in com_ins)
+                inserts.extend(com_ins)
+            except Exception as e:  # noqa: BLE001 - jamais bloquant
+                log.warning("Commentaire : préparation impossible (%s) — montage comme d'habitude", e)
+                com_info = {"erreur": f"préparation impossible ({type(e).__name__}) : montage fait comme d'habitude"}
+    # 4·0) ouverture choc : choisie en premier, son passage n'est plus réutilisé ensuite
     if opts.get("ouverture_choc") == "oui":
         opener = pick_opener(ai, att, lang, orient, work, plan.get("hook", ""), label_for)
         if opener is None:
@@ -554,9 +582,58 @@ def main(argv=None) -> int:
             log.info("Habillage : %d citation(s) possible(s) + chiffres clés de tes phrases", len(quotes_))
         except Exception as e:  # noqa: BLE001 - bonus : jamais bloquant
             log.warning("habillage abandonné : %s", e)
-    segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
+    vis_ = plan["visuals"]
+    if com_info and not com_info.get("erreur"):
+        # MODE COMMENTAIRE : la vidéo commentée occupe sa place TOUT le temps — aucune autre carte (photo, chiffre,
+        # citation) ni aucun autre extrait ne vient la remplacer ; seule la carte de fin reste
+        n_drop = len(vis_) + sum(1 for i in inserts if not i.get("commentaire"))
+        vis_, amb_fn = [], None
+        inserts = [i for i in inserts if i.get("commentaire")]
+        com_info["sans_cartes"] = n_drop
+    segs, chosen = schedule(words, sents, keep, vis_, inserts, plan["chapters"], info["duration"], opts, orient,
                             opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats,
                             outro=outro_v, env=env_son, min_start=b0, ambient=amb_fn)
+    # MODE COMMENTAIRE : la vidéo commentée reste à l'écran, en pause sur le passage qui va suivre
+    if com_info and not com_info.get("erreur"):
+        try:
+            from . import commentaire as COM
+            x_c = next((x for x in att if x["name"] == com_info.get("video")), None)
+            vl = (x_c.get("label") if x_c else "") or Path(str(com_info.get("video") or "")).stem.replace("_", " ")
+            from .render import _dims
+            panels = []
+            com_segs = [s_ for s_ in segs if s_.kind == "insert" and s_.insert.get("commentaire")]
+            for k, s_ in enumerate(com_segs):
+                p_ = s_.insert["passage"]
+                s_.insert["asset"]["_pause_panel"] = COM.panneau_pause(x_c["path"], p_, vl, orient, work, k,
+                                                                       _dims(s_.insert["asset"]))
+                panels.append(s_.insert["asset"]["_pause_panel"])
+            if com_segs:   # après le dernier passage : en pause sur sa dernière image, sans « à suivre »
+                p_ = dict(com_segs[-1].insert["passage"])
+                p_["start"] = max(float(p_["start"]), float(p_["end"]) - 1.2)
+                panels.append(COM.panneau_pause(x_c["path"], p_, vl, orient, work, len(com_segs),
+                                                _dims(com_segs[-1].insert["asset"]), titre=""))
+            n_p = COM.permanent(segs, panels)
+            com_info["plans"] = n_p
+            log.info("Commentaire : vidéo commentée en pause à côté de toi sur %d plan(s)", n_p)
+        except Exception as e:  # noqa: BLE001 - jamais bloquant : plans normaux
+            log.warning("Commentaire : vidéo en pause impossible (%s) — plans normaux entre les passages", e)
+            com_info["pause"] = f"vidéo en pause impossible ({type(e).__name__})"
+    if com_info is not None:   # PLAN.md : ce que chaque « écoutez ça » a lancé
+        nb_ = brand.setdefault("notes", [])
+        if com_info.get("erreur"):
+            nb_.append("🎬 MODE COMMENTAIRE : " + com_info["erreur"])
+        else:
+            nb_.append(f"🎬 MODE COMMENTAIRE : « {com_info.get('video')} » — {sum(1 for i in com_info['items'] if i['inserted'])}"
+                       f"/{com_info['passages']} passage(s) joué(s), vidéo en pause à côté de toi sur "
+                       f"{com_info.get('plans', 0)} plan(s)" + (f" ⚠ {com_info['pause']}" if com_info.get("pause") else ""))
+            for it in com_info["items"]:
+                nb_.append(f"   · « {it['phrase']} » à {tc(it['t0'])} → " + (
+                    f"passage {it.get('n')} « {it.get('titre') or ''} » ({it['why']})" if it["inserted"] else f"rien : {it['why']}"))
+            if com_info.get("sans_cartes"):
+                nb_.append(f"   · {com_info['sans_cartes']} autre(s) carte(s) / extrait(s) non posé(s) : la vidéo commentée garde "
+                           "sa place tout le temps")
+            for p_ in com_info.get("oublies") or []:
+                nb_.append(f"   ⚠ passage {p_.get('n')} « {p_.get('titre') or ''} » jamais lancé (aucun « écoutez ça » pour lui)")
     n_amb = sum(1 for c in chosen if c.get("ambient"))
     if n_amb:
         log.info("Habillage : %d carte(s) (phrase forte / chiffre clé) là où rien n'était prévu", n_amb)
@@ -673,7 +750,7 @@ def main(argv=None) -> int:
     want_v = (os.environ.get("MONTAGE_VERSION_VERTICALE") or "auto").strip().lower()
     chained = bool((os.environ.get("CHAINE_ID") or "").strip()) or \
         (os.environ.get("MONTAGE_CHAINE_SHORTS") or "").strip().lower() == "oui"
-    if orient == "h" and (want_v == "oui" or (want_v == "auto" and chained)):
+    if orient == "h" and opts.get("mode") != "commentaire" and (want_v == "oui" or (want_v == "auto" and chained)):
         render_min = (time.time() - T_RENDER0) / 60
         left_min = float(os.environ.get("MONTAGE_BUDGET_MIN", "320")) - (time.time() - T0) / 60
         if render_min * 1.3 + 5 > left_min:
@@ -1407,7 +1484,9 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         if s_.kind == "insert":
             used_ |= {s_.insert.get("attachment"), (s_.insert.get("asset") or {}).get("attachment")}
     miss_ = [x for x in att if x["id"] not in used_]
-    if miss_:
+    if miss_ and opts.get("mode") == "commentaire":   # voulu : la vidéo commentée garde sa place tout le temps
+        qc.append((True, f"mode commentaire : {len(miss_)} autre(s) pièce(s) jointe(s) non posée(s) (voulu)"))
+    elif miss_:
         qc.append((False, "pièce(s) jointe(s) absente(s) du montage : " + ", ".join(
             f"{x['name']} ({'aucun silence sûr pour l’insérer sans te couper' if x['kind'] == 'video' else 'pas de place à l’écran au moment prévu'})"
             for x in miss_[:8])))
@@ -1587,12 +1666,17 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     for s in segs:
         if s.kind == "split":
             v = s.panel["v"]
+            if v.get("kind") == "commentaire":   # vidéo commentée en pause à côté de toi (mode commentaire)
+                tit = v.get("label") or ""
+                L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | ⏸ Vidéo commentée en pause{(' : ' + tit) if tit else ''} "
+                         f"| à côté de toi | (tu parles) | vidéo commentée |")
+                continue
             what = {"person": "Photo (personne)", "place": "Photo (lieu)", "thing": "Photo", "event": "Photo (événement)",
                     "article": "Article de presse", "figure": "Chiffre clé", "quote": "Citation",
                     "attachment": "Ta photo", "statement": "Déclaration (carte)", "outro": "Carte de fin"}.get(v["kind"], v["kind"])
             lab = v.get("text") or v.get("label") or ""
             side = ("à droite de toi" if s.side == "left" else "à gauche de toi") if info.get("out_orient", "h" if info["w"] >= info["h"] else "v") == "h" else "sous toi"
-            said = sents[v["s0"]]["text"][:110] if v["s0"] < len(sents) else ""
+            said = sents[v["s0"]]["text"][:110] if isinstance(v.get("s0"), int) and v["s0"] < len(sents) else ""
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | {what} : {lab} | {side} | « {said} » | {v.get('source', '—')} |")
         elif s.kind == "insert":
             a = s.insert["asset"]

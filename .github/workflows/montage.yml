@@ -15,6 +15,11 @@ on:
     types: [chaine-montage]
   workflow_dispatch:
     inputs:
+      mode:
+        description: "🎙 Mode : normal · commentaire d'une vidéo = tu commentes la vidéo déposée dans montage-joints (lance d'abord le prompteur dans ce mode : il y dépose la liste des passages). Pas de Shorts dans ce mode"
+        type: choice
+        options: [normal, "commentaire d'une vidéo"]
+        default: normal
       source:
         description: "Vidéo — VIDE = ta vidéo « moi… » déposée dans le dossier Drive montage-joints (avec tes extraits). Sinon : gdrive:dossier/moi.mp4, lien Drive ou tag de release. 📌 Après : titre ✅ = publie, ⚠ = regarde PLAN.md"
         required: false
@@ -165,6 +170,12 @@ jobs:
       QF_QUOTA_FILE: state/quota.json
       PYTHONPATH: vpf
       # 🔗 CHAÎNE (vide pour un montage lancé à la main ou par une release : rien ne change alors)
+      # 🧪 essai lancé sur une BRANCHE (pas main) : ton dossier Drive montage-joints n'est ni lu ni vidé, et le résultat
+      # va dans la release « out-montage-essai » (ton dernier montage « out-montage » reste intact)
+      JOINTS_DRIVE: ${{ github.ref_name == 'main' && 'oui' || 'non' }}
+      TAG_OUT: ${{ github.ref_name == 'main' && 'out-montage' || 'out-montage-essai' }}
+      # 🎙 mode « commentaire d'une vidéo » (formulaire, ou choix fait dans le fond vert pour la chaîne) ; vide = normal
+      MONTAGE_MODE: ${{ inputs.mode || github.event.client_payload.opts.mode || 'normal' }}
       CHAINE_ID: ${{ github.event.client_payload.chaine_id }}
       MONTAGE_CHAINE_SHORTS: ${{ inputs.chaine_shorts }}   # verrou : en chaîne, jamais de sous-titres dans la vidéo montée
       CHAINE_VIDEO_ID: ${{ github.event.client_payload.video_id }}
@@ -465,4 +476,6 @@ jobs:
           VIDEO_NOM: ${{ needs.montage.outputs.video_nom }}
           # lancement à la main : montage-joints a déjà été vidé par la publication habituelle
           JOINTS_B64: ${{ github.event_name == 'repository_dispatch' && needs.montage.outputs.joints || '' }}
+          # 🎙 mode commentaire : pas de Shorts (montage-joints est quand même rangé)
+          SANS_SHORTS: ${{ startsWith(inputs.mode || github.event.client_payload.opts.mode || 'normal', 'comment') && 'oui' || '' }}
         run: bash scripts/chaine_suite.sh lancer

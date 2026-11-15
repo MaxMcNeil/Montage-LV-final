@@ -29,7 +29,7 @@ ranger_joints() { # remote dossier liste id
 }
 F=output/montage-final.mp4
 SUM="${GITHUB_STEP_SUMMARY:-/dev/stdout}"
-TAG_OUT="out-montage"
+TAG_OUT="${TAG_OUT:-out-montage}"   # essai lancé sur une branche : out-montage-essai (ton résultat reste intact)
 [ -s "$F" ] || { echo "::error::Aucune vidéo rendue"; exit 1; }
 MB=$(( $(stat -c %s "$F") / 1048576 ))
 # verdict du contrôle qualité (1re ligne de PLAN.md) : affiché dans le titre du résultat et l'état de ta release
@@ -91,7 +91,7 @@ fi
 
 # ---------- Release GitHub (si < 1,9 Go) ----------
 if [ "$MB" -lt "${RELEASE_MAX_MB:-1900}" ]; then
-  for t in $(gh release list --repo "$REPO" --limit 100 --json tagName -q '.[].tagName' | grep -E '^out-montage$' || true); do
+  for t in $(gh release list --repo "$REPO" --limit 100 --json tagName -q '.[].tagName' | grep -Fx "$TAG_OUT" || true); do
     gh release delete "$t" --repo "$REPO" -y --cleanup-tag || true
   done
   { echo "## $VERDICT"; echo; echo "🎬 **Ton dernier montage** ($(date -u +%d/%m/%Y)) — remplacé à chaque nouveau montage."
