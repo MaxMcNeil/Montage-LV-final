@@ -184,7 +184,8 @@ def permanent(segs: list, panels: list) -> int:
         nxt = next((x for x in segs[k + 1:] if x.kind == "insert" and x.insert.get("commentaire")), None)
         asset = (nxt.insert["asset"].get("_pause_panel") if nxt else None) or panels[-1]
         s.kind, s.side = "split", "left"
-        s.panel = {"v": {"asset": asset, "kind": "commentaire"}, "side": "left", "persistent": True}
+        tit = (nxt.insert["asset"].get("pause_titre") if nxt else "") or ""
+        s.panel = {"v": {"asset": asset, "kind": "commentaire", "label": tit}, "side": "left", "persistent": True}
         n += 1
     # continuité : entre deux plans « en pause » qui se suivent, ni glissement de la carte ni fondu de ton cadre
     for k, s in enumerate(segs):

@@ -1644,12 +1644,17 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
     for s in segs:
         if s.kind == "split":
             v = s.panel["v"]
+            if v.get("kind") == "commentaire":   # vidéo commentée en pause à côté de toi (mode commentaire)
+                tit = v.get("label") or ""
+                L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | ⏸ Vidéo commentée en pause{(' : ' + tit) if tit else ''} "
+                         f"| à côté de toi | (tu parles) | vidéo commentée |")
+                continue
             what = {"person": "Photo (personne)", "place": "Photo (lieu)", "thing": "Photo", "event": "Photo (événement)",
                     "article": "Article de presse", "figure": "Chiffre clé", "quote": "Citation",
                     "attachment": "Ta photo", "statement": "Déclaration (carte)", "outro": "Carte de fin"}.get(v["kind"], v["kind"])
             lab = v.get("text") or v.get("label") or ""
             side = ("à droite de toi" if s.side == "left" else "à gauche de toi") if info.get("out_orient", "h" if info["w"] >= info["h"] else "v") == "h" else "sous toi"
-            said = sents[v["s0"]]["text"][:110] if v["s0"] < len(sents) else ""
+            said = sents[v["s0"]]["text"][:110] if isinstance(v.get("s0"), int) and v["s0"] < len(sents) else ""
             L.append(f"| {tc(s.out0)} → {tc(s.out0 + s.dur)} | {what} : {lab} | {side} | « {said} » | {v.get('source', '—')} |")
         elif s.kind == "insert":
             a = s.insert["asset"]

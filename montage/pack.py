@@ -47,7 +47,13 @@ def find(code: str) -> Path | None:
 
 def _busy(segs) -> list[tuple[float, float]]:
     """Plages où l'écran est déjà occupé (extrait, carte à côté de toi)."""
-    return [(s.out0, s.out0 + s.dur) for s in segs if s.kind in ("insert", "split")]
+    return [(s.out0, s.out0 + s.dur) for s in segs if s.kind in ("insert", "split") and not _pause(s)]
+
+
+def _pause(s) -> bool:
+    """Mode commentaire : toi + la vidéo commentée en pause (tout le temps) — l'écran n'est pas « occupé » par une
+    carte : les animations s'y posent comme quand tu es seul."""
+    return s.kind == "split" and bool(s.panel and s.panel.get("persistent"))
 
 
 def _free(t0: float, t1: float, busy, chap_times, margin: float = 1.0) -> bool:
@@ -73,7 +79,7 @@ def plan(segs, chap_times: list, words: list, total: float, name: str) -> list[d
     # 2) raccords sur de VRAIES coupes (saut dans ta vidéo, sans fondu), au plus 3, espacés d'au moins 90 s
     cuts = []
     for s in segs:
-        if s.kind != "full":
+        if s.kind != "full" and not _pause(s):
             continue
         t = s.out0
         prev = None

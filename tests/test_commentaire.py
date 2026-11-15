@@ -74,3 +74,18 @@ def test_permanent_pause_partout():
     assert n == 4
     assert [s.panel["v"]["asset"] for s in segs if s.kind == "split"] == ["p1", "p2", "p2", "p2"]
     assert segs[2].panel["cont_out"] and segs[3].panel["cont_in"] and segs[2].panel["after_insert"]
+
+
+def test_pack_pose_des_animations_en_mode_commentaire():
+    from montage import pack
+    A = lambda a, b: NS(a=a, b=b, xin=0)   # noqa: E731
+    segs, t = [], 0.0
+    for k in range(10):   # 10 plans « toi + vidéo en pause » de 30 s, chacun avec une vraie coupe au milieu
+        s = NS(kind="split", out0=t, n=30 * 30, atoms=[A(k * 40, k * 40 + 15), A(k * 40 + 20, k * 40 + 35)],
+               panel={"persistent": True, "v": {"kind": "commentaire"}})
+        s.dur = 30.0
+        segs.append(s)
+        t += 30
+    ev = pack.plan(segs, [], [], 300.0, "essai")
+    kinds = [e["kind"] for e in ev]
+    assert "raccord" in kinds and "cta" in kinds
