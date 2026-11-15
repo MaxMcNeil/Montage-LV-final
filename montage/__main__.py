@@ -1484,7 +1484,9 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
         if s_.kind == "insert":
             used_ |= {s_.insert.get("attachment"), (s_.insert.get("asset") or {}).get("attachment")}
     miss_ = [x for x in att if x["id"] not in used_]
-    if miss_:
+    if miss_ and opts.get("mode") == "commentaire":   # voulu : la vidéo commentée garde sa place tout le temps
+        qc.append((True, f"mode commentaire : {len(miss_)} autre(s) pièce(s) jointe(s) non posée(s) (voulu)"))
+    elif miss_:
         qc.append((False, "pièce(s) jointe(s) absente(s) du montage : " + ", ".join(
             f"{x['name']} ({'aucun silence sûr pour l’insérer sans te couper' if x['kind'] == 'video' else 'pas de place à l’écran au moment prévu'})"
             for x in miss_[:8])))
