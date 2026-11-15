@@ -49,6 +49,9 @@ _RAW = {
     "listen to what she says": "listen to what she says", "listen to what they say": "listen to what they say",
     "listen to what he's saying": "listen to what he's saying", "listen to what she's saying": "listen to what she's saying",
     "listen to what they're saying": "listen to what they're saying",
+    # espagnol, allemand, portugais (annonces écrites par le prompteur en mode commentaire)
+    "escuchen esto": "escuchen esto", "escuchad esto": "escuchad esto", "hört euch das an": "hört euch das an",
+    "hören sie sich das an": "hören Sie sich das an", "ouçam isto": "ouçam isto", "ouçam isso": "ouçam isso",
     # arabe (écrit avec ou sans hamza / alif final : la transcription varie)
     "اسمعوا هذا": "اسمعوا هذا", "اسمعو هذا": "اسمعوا هذا", "اسمعوا هذه": "اسمعوا هذه",
     "اسمعوا هذا الكلام": "اسمعوا هذا الكلام", "اسمعوا ماذا يقول": "اسمعوا ماذا يقول",
@@ -56,7 +59,7 @@ _RAW = {
     "اسمعوا ما يقول": "اسمعوا ما يقول", "اسمعوا ما تقول": "اسمعوا ما تقول", "اسمعوا ما يقولون": "اسمعوا ما يقولون",
     "اسمعوا ما يقوله": "اسمعوا ما يقوله", "اسمعوا ما تقوله": "اسمعوا ما تقوله",
 }
-SHORT_END = {"ca", "this", "questo", "qua", "qui", "هذا", "هذه"}
+SHORT_END = {"ca", "this", "questo", "qua", "qui", "هذا", "هذه", "esto", "an", "isto", "isso"}
 PHRASES = {tuple(_kn(k)): v for k, v in _RAW.items()}
 MAX_WAIT = 8.0      # « écoutez ce qu'il dit (à propos de…) » : la pause peut venir un peu plus loin
 MAX_WAIT_CA = 1.2   # « écoutez ça » : la pause suit tout de suite (sinon « écoutez ça va… » n est pas une annonce)
