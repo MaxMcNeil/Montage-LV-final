@@ -383,6 +383,10 @@ def passages_commentaire(joints: str | None = None, local: list | None = None) -
         shutil.copy(loc[0], dst)
         print(f"Mode commentaire : liste des passages prise dans les fichiers joints ({loc[0].name})")
         return
+    if os.environ.get("JOINTS_DRIVE", "oui").strip().lower() in ("non", "no", "0", "false"):
+        print("::warning::mode commentaire : dossier Drive non lu (essai sur une branche) et aucune liste des passages "
+              "jointe → montage normal")
+        return
     rem = rclone_remote()
     if not rem:
         msg = "mode commentaire : pas de Google Drive (RCLONE_CONF) → liste des passages du prompteur introuvable"
