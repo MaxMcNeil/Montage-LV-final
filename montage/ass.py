@@ -39,6 +39,7 @@ class ASS:
         cap_lh = (70 if orient == "v" else 64) * 1.2 * self.k
         self.cap_top = self.H - (0.17 * self.H if orient == "v" else 64) - 2 * cap_lh - 44   # haut des sous-titres (2 lignes)
         self.no_caps = False   # True : pas de sous-titres dans cette vidéo (le bas de l'image est libre pour les titres)
+        self.theme = None      # habillage vertical (newsroom / warroom / story) : places des textes adaptées
 
     def text_band_y(self, half: int) -> int:
         """Centre d'un bandeau de texte (hauteur 2*half) qui ne touche ni le visage ni les sous-titres :
@@ -108,6 +109,9 @@ class ASS:
         """(MarginL, MarginR, MarginV, nb de caractères max PAR LIGNE) selon la mise en page du moment.
         Calibré pour une police grasse de 64-70 px : aucune ligne ne déborde, 2 lignes au plus."""
         W, H = self.W, self.H
+        if self.theme and self.o == "v":     # habillage vertical : dans ton cadre, jamais sous l'interface YouTube
+            from .habillage_v import CAPS
+            return CAPS[self.theme]
         if seg is not None and seg.kind == "split":
             x, y, w, h = GEOM[self.o][seg.side]["card"]
             return x + 20, W - (x + w) + 20, H - (y + h) + 34, (22 if self.o == "h" else 30)
@@ -197,6 +201,8 @@ class ASS:
     def chapter(self, t0: float, num: int, title: str, dur: float = 5.0):
         """Carte de chapitre façon journal télévisé : bandeau bleu nuit opaque qui glisse depuis le bord, grande barre
         or, « PARTIE 02 » en or lumineux, titre en grand (2 lignes au plus), filet or qui se trace sous le titre."""
+        if self.theme and self.o == "v":     # habillage vertical : le sujet est déjà affiché par l'habillage
+            return
         W, H = self.W, self.H
         rtl = is_rtl(self.lang)
         v = self.o == "v"
@@ -263,9 +269,19 @@ class ASS:
         if len(tl) > 2:
             tl = [tl[0], _fit(" ".join(tl[1:]), per1)]
         bl = [_fit(bottom, per2)] if bottom else []
+        th_m = None
+        if self.theme and self.o == "v":     # habillage vertical : crédit et sous-titres DANS la fenêtre du média
+            from .habillage_v import LAYOUT
+            th_m = LAYOUT[self.theme]["media"]
+            maxw = th_m[2] - 40
+            per1, per2 = int((maxw - 100) / (0.50 * fs1)), int((maxw - 100) / (0.50 * fs2))
+            tl = _balance(top.split(), per1)
+            if len(tl) > 2:
+                tl = [tl[0], _fit(" ".join(tl[1:]), per1)]
+            bl = [_fit(bottom, per2)] if bottom else []
         if tl or bl:
-            y = int(H * (0.06 if self.o == "h" else 0.05))
-            x = 80 if not rtl else W - 80
+            y = int(H * (0.06 if self.o == "h" else 0.05)) if not th_m else th_m[1] + 30
+            x = (80 if not rtl else W - 80) if not th_m else (th_m[0] + 44 if not rtl else th_m[0] + th_m[2] - 44)
             an = 7 if not rtl else 9
             e = min(t0 + 7.0, t0 + dur - 0.3)
             bw = int(min(maxw, 100 + max([len(z) * 0.47 * fs1 for z in tl] + [len(z) * 0.47 * fs2 for z in bl])))
@@ -289,11 +305,15 @@ class ASS:
             return
         mv = 70 if self.o == "h" else 520
         per = 40 if self.o == "h" else 26
+        ml = mr = 140
+        if th_m:
+            mv, ml, mr = H - (th_m[1] + th_m[3]) + 18, th_m[0] + 30, W - (th_m[0] + th_m[2]) + 30
+            per = max(14, int((th_m[2] - 60) / 26))
         for s in ins.get("subs") or []:
             for a, b, txt in _split_sub(s, per * 2 - 6):
                 self.add(t0 + a, min(t0 + b + 0.15, t0 + dur - 0.05), "Sub",
                          r"{\fad(90,70)}" + r"\N".join(esc(x) for x in _balance(txt.split(), per)), layer=4,
-                         ml=140, mr=140, mv=mv)
+                         ml=ml, mr=mr, mv=mv)
 
     # ------------------------------------------------------------------ fin
     def outro(self, total: float, line1: str, line2: str, dur: float = 5.5, logo: bool = False):
