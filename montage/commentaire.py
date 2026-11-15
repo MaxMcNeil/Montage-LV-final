@@ -55,6 +55,8 @@ def video_commentee(att: list, data: dict):
         st = _norm(Path(x["name"]).stem)
         if nom and (st == nom or (st.endswith(nom) and st[:-len(nom)].isdigit())):
             return x
+    if nom:   # la liste du prompteur a été faite pour UNE AUTRE vidéo (ancienne liste) : jamais appliquée à celle-ci
+        return None
     return max(vids, key=lambda x: float(x.get("duration") or 0))
 
 
@@ -99,7 +101,8 @@ def preparer(ai, words, sents, att, tr, quiet, orient, work, lang, data, label_f
     info = {"items": [], "passages": len(data["passages"]), "video": data.get("video")}
     x = video_commentee(att, data)
     if not x:
-        info["erreur"] = "vidéo commentée introuvable dans les pièces jointes (montage-joints)"
+        info["erreur"] = (f"la liste du prompteur est pour « {data.get('video')} », introuvable dans montage-joints "
+                          "(ancienne liste ? relance le prompteur en mode commentaire) : montage fait comme d'habitude")
         return None, [], info
     info["video"] = x["name"]
     label = (label_for(x, 0, 0) if label_for else None) or x.get("label") or Path(x["name"]).stem.replace("_", " ")

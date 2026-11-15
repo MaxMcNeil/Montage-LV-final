@@ -62,7 +62,8 @@ def test_video_commentee_prefixe_chaine():
     att = [{"kind": "video", "name": "02_clip.mp4", "duration": 999},
            {"kind": "video", "name": "01_Jeffrey_Epstein.mp4", "duration": 300}]
     assert COM.video_commentee(att, {"video": "Jeffrey Epstein.mp4"})["name"] == "01_Jeffrey_Epstein.mp4"
-    assert COM.video_commentee(att, {"video": "autre.mp4"})["name"] == "02_clip.mp4"
+    assert COM.video_commentee(att, {"video": "autre.mp4"}) is None          # liste faite pour une autre vidéo
+    assert COM.video_commentee(att, {})["name"] == "02_clip.mp4"
 
 
 def test_permanent_pause_partout():
