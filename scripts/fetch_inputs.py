@@ -304,7 +304,7 @@ def from_release(tag: str, dest: Path | None = None) -> list[Path]:
 def from_url(u: str, dest: Path) -> list[Path]:
     dest.mkdir(parents=True, exist_ok=True)
     name = re.sub(r"[^\w.-]", "_", Path(u.split("?")[0]).name) or "fichier"
-    if not name.lower().endswith(VIDEO + IMAGE):
+    if not name.lower().endswith(VIDEO + IMAGE + (".json",)):   # .json : liste des passages (mode commentaire)
         name += ".mp4"
     f = dest / name
     try:
