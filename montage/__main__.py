@@ -263,6 +263,7 @@ def main(argv=None) -> int:
     com_info = None
     if opts.get("mode") == "commentaire":
         from . import commentaire as COM
+        COM.mise_en_page(orient)   # la vidéo commentée : plus de la moitié de l'écran, toujours au même endroit
         com_data = COM.charger(Path(os.environ.get("COMMENTAIRE_PASSAGES", "input/commentaire-passages.json")))
         if not com_data:
             com_info = {"erreur": "liste des passages du prompteur absente (commentaire-passages.json dans "
@@ -581,7 +582,15 @@ def main(argv=None) -> int:
             log.info("Habillage : %d citation(s) possible(s) + chiffres clés de tes phrases", len(quotes_))
         except Exception as e:  # noqa: BLE001 - bonus : jamais bloquant
             log.warning("habillage abandonné : %s", e)
-    segs, chosen = schedule(words, sents, keep, plan["visuals"], inserts, plan["chapters"], info["duration"], opts, orient,
+    vis_ = plan["visuals"]
+    if com_info and not com_info.get("erreur"):
+        # MODE COMMENTAIRE : la vidéo commentée occupe sa place TOUT le temps — aucune autre carte (photo, chiffre,
+        # citation) ni aucun autre extrait ne vient la remplacer ; seule la carte de fin reste
+        n_drop = len(vis_) + sum(1 for i in inserts if not i.get("commentaire"))
+        vis_, amb_fn = [], None
+        inserts = [i for i in inserts if i.get("commentaire")]
+        com_info["sans_cartes"] = n_drop
+    segs, chosen = schedule(words, sents, keep, vis_, inserts, plan["chapters"], info["duration"], opts, orient,
                             opener=opener, sil=sil_all, voice_free=voice_free, energy=energy, stats=zstats,
                             outro=outro_v, env=env_son, min_start=b0, ambient=amb_fn)
     # MODE COMMENTAIRE : la vidéo commentée reste à l'écran, en pause sur le passage qui va suivre
@@ -590,11 +599,19 @@ def main(argv=None) -> int:
             from . import commentaire as COM
             x_c = next((x for x in att if x["name"] == com_info.get("video")), None)
             vl = (x_c.get("label") if x_c else "") or Path(str(com_info.get("video") or "")).stem.replace("_", " ")
+            from .render import _dims
             panels = []
-            for k, s_ in enumerate([s_ for s_ in segs if s_.kind == "insert" and s_.insert.get("commentaire")]):
+            com_segs = [s_ for s_ in segs if s_.kind == "insert" and s_.insert.get("commentaire")]
+            for k, s_ in enumerate(com_segs):
                 p_ = s_.insert["passage"]
-                s_.insert["asset"]["_pause_panel"] = COM.panneau_pause(x_c["path"], p_, vl, orient, work, k)
+                s_.insert["asset"]["_pause_panel"] = COM.panneau_pause(x_c["path"], p_, vl, orient, work, k,
+                                                                       _dims(s_.insert["asset"]))
                 panels.append(s_.insert["asset"]["_pause_panel"])
+            if com_segs:   # après le dernier passage : en pause sur sa dernière image, sans « à suivre »
+                p_ = dict(com_segs[-1].insert["passage"])
+                p_["start"] = max(float(p_["start"]), float(p_["end"]) - 1.2)
+                panels.append(COM.panneau_pause(x_c["path"], p_, vl, orient, work, len(com_segs),
+                                                _dims(com_segs[-1].insert["asset"]), titre=""))
             n_p = COM.permanent(segs, panels)
             com_info["plans"] = n_p
             log.info("Commentaire : vidéo commentée en pause à côté de toi sur %d plan(s)", n_p)
@@ -612,6 +629,9 @@ def main(argv=None) -> int:
             for it in com_info["items"]:
                 nb_.append(f"   · « {it['phrase']} » à {tc(it['t0'])} → " + (
                     f"passage {it.get('n')} « {it.get('titre') or ''} » ({it['why']})" if it["inserted"] else f"rien : {it['why']}"))
+            if com_info.get("sans_cartes"):
+                nb_.append(f"   · {com_info['sans_cartes']} autre(s) carte(s) / extrait(s) non posé(s) : la vidéo commentée garde "
+                           "sa place tout le temps")
             for p_ in com_info.get("oublies") or []:
                 nb_.append(f"   ⚠ passage {p_.get('n')} « {p_.get('titre') or ''} » jamais lancé (aucun « écoutez ça » pour lui)")
     n_amb = sum(1 for c in chosen if c.get("ambient"))

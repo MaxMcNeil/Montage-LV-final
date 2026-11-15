@@ -146,30 +146,95 @@ def preparer(ai, words, sents, att, tr, quiet, orient, work, lang, data, label_f
     return opener, inserts, info
 
 
-def panneau_pause(x_path: str, passage: dict, video_label: str, orient: str, work: Path, n: int):
-    """Carte « vidéo en pause » : l'image du passage qui va suivre (assombrie), ⏸, et son titre."""
+# Mode commentaire, horizontal : la vidéo commentée prend PLUS de la moitié de l'écran (1080 px sur 1920), toi à côté
+GEOM_H = {"left": {"card": (80, 140, 620, 800), "panel": (760, 140, 1080, 800)},
+          "right": {"card": (1220, 140, 620, 800), "panel": (80, 140, 1080, 800)}}
+
+
+def mise_en_page(orient: str) -> None:
+    """Agrandit la zone de la vidéo commentée (horizontal) pour tout le montage : pause, passages et ouverture au même
+    endroit, à la même taille."""
+    from . import config as C
+    if orient == "h":
+        C.GEOM["h"].update({k: dict(v) for k, v in GEOM_H.items()})
+
+
+def zone_video(orient: str, clip_wh: tuple, side: str = "left") -> tuple:
+    """(x, y, w, h) de la vidéo DANS la zone média — exactement le calcul du rendu d'un passage joué (render.py)."""
+    from . import config as C
+    W, H = (1920, 1080) if orient == "h" else (1080, 1920)
+    pw, ph = C.GEOM[orient][side]["panel"][2:]
+    cw_, ch_ = clip_wh if clip_wh and clip_wh[0] and clip_wh[1] else (16, 9)
+    if orient == "h":
+        vw, vh = pw // 2 * 2, int(pw * H / W) // 2 * 2
+    elif cw_ > ch_ * 1.2:
+        vw, vh = pw // 2 * 2, min(ph, int(pw * ch_ / cw_)) // 2 * 2
+    else:
+        vw, vh = pw // 2 * 2, ph // 2 * 2
+    return (pw - vw) // 2, (ph - vh) // 2, vw, vh
+
+
+def panneau_pause(x_path: str, passage: dict, video_label: str, orient: str, work: Path, n: int,
+                  clip_wh: tuple = (16, 9), titre: str | None = None) -> dict:
+    """Vidéo commentée EN PAUSE, exactement à la place (et à la taille) où le passage va jouer : l'image du passage qui
+    suit (lent zoom, jamais figée), assombrie, et en bas un bandeau « EN PAUSE · À SUIVRE » + titre.
+    Même format que les cartes (render_panel) : {"frame", "photo", "hole", "size"}."""
     import subprocess
     from PIL import Image, ImageDraw, ImageEnhance
     from . import config as C
-    from .panels import render_panel
+    from .panels import _font, fit, draw_lines, shadow
     d = work / "commentaire"
     d.mkdir(parents=True, exist_ok=True)
-    img_p = d / f"pause_{n}.jpg"
-    t = float(passage["start"]) + 0.6
+    P = C.SHADOW_PAD
+    pw, ph = C.GEOM[orient]["left"]["panel"][2:]
+    hx, hy, vw, vh = zone_video(orient, clip_wh)
+    # image du passage (0,6 s après son début : jamais un fondu au noir ni une image de transition)
+    img_p = d / f"pause_src_{n}.jpg"
+    t = float(passage.get("start") or 0) + 0.6
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-ss", f"{t:.3f}", "-i", x_path, "-frames:v", "1", str(img_p)],
                    check=True, timeout=120)
-    im = ImageEnhance.Brightness(Image.open(img_p).convert("RGB")).enhance(0.72)
-    dr = ImageDraw.Draw(im, "RGBA")
-    s = max(40, int(min(im.size) * 0.16))
-    cx, cy = im.width // 2, im.height // 2
-    dr.ellipse((cx - s, cy - s, cx + s, cy + s), fill=(0, 0, 0, 120))
-    bw, bh = int(s * 0.28), int(s * 0.9)
-    for dx in (-int(s * 0.38), int(s * 0.10)):
-        dr.rounded_rectangle((cx + dx, cy - bh // 2, cx + dx + bw, cy + bh // 2), radius=bw // 4, fill=(255, 255, 255, 235))
-    pw, ph = C.GEOM[orient]["left"]["panel"][2:]
-    titre = str(passage.get("titre") or "").strip()
-    return render_panel("attachment", pw, ph, {"image": im, "label": f"⏸  {titre}" if titre else "⏸",
-                                               "credit": video_label, "contain": True}, d, f"pause_{n}")
+    from .panels import _cover
+    ph_img = _cover(Image.open(img_p), vw, vh, 0.5)
+    ph_img = ImageEnhance.Brightness(ph_img).enhance(0.78)
+    photo = d / f"pause_photo_{n}.png"
+    ph_img.save(photo)
+    # cadre : ombre + filet crème autour de la vidéo, fenêtre transparente, ⏸ et bandeau du titre par-dessus
+    fr = Image.new("RGBA", (pw + 2 * P, ph + 2 * P), (0, 0, 0, 0))
+    fr.alpha_composite(shadow(vw, vh, C.CARD_RADIUS, strength=170), (hx, hy))
+    a = fr.getchannel("A")
+    ImageDraw.Draw(a).rounded_rectangle((P + hx, P + hy, P + hx + vw - 1, P + hy + vh - 1), C.CARD_RADIUS, fill=0)
+    fr.putalpha(a)
+    ov = Image.new("RGBA", (vw, vh), (0, 0, 0, 0))
+    dr = ImageDraw.Draw(ov)
+    # bandeau du bas (dégradé bleu nuit) : « EN PAUSE · À SUIVRE » + titre du passage
+    band = int(vh * 0.30)
+    for k in range(band):
+        al = int(235 * min(1.0, (k / band) * 1.6))
+        dr.line((0, vh - band + k, vw, vh - band + k), fill=C.NAVY_DEEP + (al,))
+    tit = (titre if titre is not None else str(passage.get("titre") or "")).strip()
+    m = int(vw * 0.05)
+    fk = _font("sans", max(18, int(vh * 0.045)), True)
+    ky = vh - band + int(band * 0.22)
+    # ⏸ en petit devant le mot (dessiné : aucune police n'a besoin d'avoir le symbole)
+    bh_k = int(fk.size * 0.8)
+    for dx in (0, int(bh_k * 0.55)):
+        dr.rectangle((m + dx, ky + 3, m + dx + max(3, bh_k // 4), ky + 3 + bh_k), fill=C.GOLD_HI + (255,))
+    kick = "EN PAUSE · À SUIVRE" if tit else "EN PAUSE"
+    dr.text((m + int(bh_k * 1.35), ky), kick, font=fk, fill=C.GOLD_HI + (255,))
+    if tit:
+        f, lines, size = fit(dr, tit, "serif", vw - 2 * m, int(band * 0.50), int(vh * 0.085), int(vh * 0.05), 2, 1.08)
+        draw_lines(dr, lines, f, size, (m, ky + int(fk.size * 1.45), vw - 2 * m, int(band * 0.52)), C.CREAM,
+                   spacing=1.08)
+    # (pas de grand ⏸ au centre : il cacherait le visage de la personne à l'écran)
+    mk = Image.new("L", (vw, vh), 0)
+    ImageDraw.Draw(mk).rounded_rectangle((0, 0, vw - 1, vh - 1), C.CARD_RADIUS, fill=255)
+    ov.putalpha(Image.composite(ov.getchannel("A"), Image.new("L", (vw, vh), 0), mk))
+    ImageDraw.Draw(ov).rounded_rectangle((1, 1, vw - 2, vh - 2), C.CARD_RADIUS, outline=C.CREAM + (235,), width=4)
+    fr.alpha_composite(ov, (P + hx, P + hy))
+    frame = d / f"pause_frame_{n}.png"
+    fr.save(frame)
+    return {"frame": str(frame), "photo": str(photo), "hole": (P + hx, P + hy, vw, vh), "size": fr.size,
+            "label": tit}
 
 
 def permanent(segs: list, panels: list) -> int:
