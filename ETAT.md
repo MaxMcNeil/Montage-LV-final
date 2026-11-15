@@ -5,12 +5,12 @@ Ce qui bloque, pourquoi, quand ça se débloque et quoi faire.
 <!-- workflows:start -->
 ## Workflows
 
-_Vérifié le 15/11/2026 à 23:56 (heure italienne), automatiquement à la fin de chacun de tes lancements (aucune exécution planifiée)._
+_Vérifié le 16/11/2026 à 00:32 (heure italienne), automatiquement à la fin de chacun de tes lancements (aucune exécution planifiée)._
 
 ✅ **Tout fonctionne** : aucun workflow en échec.
 
 - ✅ **Diagnostic** : dernier lancement réussi (10/11 à 07:38) · [voir](https://github.com/MaxMcNeil/Montage-LV-final/actions/runs/42769858800)
 - ✅ **📥 Préparer les médias — avant le Montage** : dernier lancement réussi (14/11 à 12:20) · [voir](https://github.com/MaxMcNeil/Montage-LV-final/actions/runs/43588903829)
-- ✅ **Montage final** : dernier lancement réussi (15/11 à 23:56) · [voir](https://github.com/MaxMcNeil/Montage-LV-final/actions/runs/43768773580)
+- ℹ️ **Montage final** : dernier lancement annulé (16/11 à 00:31) — à la main ou remplacé par un plus récent ; dernier succès le 16/11 à 00:28 · [voir](https://github.com/MaxMcNeil/Montage-LV-final/actions/runs/43775302204)
 
 <!-- workflows:end -->
