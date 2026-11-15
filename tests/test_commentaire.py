@@ -90,3 +90,17 @@ def test_pack_pose_des_animations_en_mode_commentaire():
     ev = pack.plan(segs, [], [], 300.0, "essai")
     kinds = [e["kind"] for e in ev]
     assert "raccord" in kinds and "cta" in kinds
+
+
+# Annonces que le prompteur (OSINT-teleprompter-, mode commentaire) écrit dans le script, par langue : le Montage DOIT
+# les reconnaître (sinon la vidéo commentée ne repart jamais). Garder en phase avec DECLENCHEUR du prompteur.
+PROMPTEUR = {"fr": "écoutez ça", "en": "listen to this", "it": "ascoltate questo", "es": "escuchen esto",
+             "de": "hört euch das an", "pt": "ouçam isto", "ar": "اسمعوا هذا"}
+
+
+def test_declencheurs_du_prompteur_reconnus():
+    from montage.keywords import find_occurrences
+    for lg, p in PROMPTEUR.items():
+        w = W(f"bon alors {p}. et la suite")
+        occ = find_occurrences(w)
+        assert len(occ) == 1 and occ[0]["short"], (lg, p, occ)
