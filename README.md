@@ -9,6 +9,24 @@ Tu déposes ta vidéo face caméra (horizontale ou verticale) avec, si tu veux, 
 GitHub la **transcrit**, **comprend ce que tu dis**, puis **monte** la vidéo : photos, articles, chiffres et
 extraits vidéo arrivent **au moment exact où tu en parles**. Tout est gratuit et tourne sur GitHub.
 
+## 📱 Habillage de la vidéo VERTICALE (l'horizontal ne change pas)
+
+Quand la vidéo montée est verticale (« format_sortie » = vertical, ou ta vidéo est verticale), elle reçoit un
+habillage complet, **au hasard par défaut** (jamais deux fois de suite le même) — choix « 📱 Habillage » du formulaire
+(et « 🔗 Chaîne — habillage vertical » dans le fond vert) :
+- **newsroom** : bandeau chaîne + « EN DIRECT », toi dans un grand cadre, titre du sujet, « AU SOMMAIRE » (sujet en
+  cours surligné), « À SUIVRE », bandeau défilant des sujets ;
+- **war room** : centre de commandement (fond noir quadrillé, cadres de visée), dossier en cours / dossiers à venir,
+  radar des lieux que tu cites ;
+- **story** : toi en plein écran, une barre de progression par sujet (celle du sujet en cours se remplit), grand
+  titre doré, « ENSUITE » ;
+- **actuel** : la mise en page d'avant.
+
+Les sujets = les chapitres du montage ; rien n'est inventé. Rien d'important sous l'interface YouTube (haut, boutons
+à droite, titre en bas), textes de 34 px au moins, aucune heure affichée. Les Shorts enchaînés sont découpés dans une
+version **sans** habillage (pas de sommaire dans tes Shorts). Mode « commentaire d'une vidéo » : mise en page actuelle.
+Un passage dont l'habillage échoue est refait sans (et PLAN.md le dit) : jamais de vidéo perdue.
+
 ## 🎙 Mode « commentaire d'une vidéo » — pas à pas
 
 Tu commentes la vidéo de quelqu'un d'autre. Elle reste **à l'écran tout le temps** (la moitié de l'écran), **en pause**
@@ -49,7 +67,8 @@ passages oubliés. Sans `commentaire-passages.json`, le montage se fait normalem
 (`montage-joints-utilises`, option « reprendre » pour une relance).
 
 > 🧪 Un essai lancé sur une **branche** (pas `main`) ne lit ni ne vide `montage-joints`, et son résultat va dans la
-> release **out-montage-essai** : ton vrai dernier montage reste intact.
+> release **out-montage-essai-<n° du run>** : ton vrai dernier montage reste intact. Un essai sur une branche ne
+> lance jamais de Shorts dans Push-overlay.
 
 ## 📥 Déposer une vidéo (depuis le téléphone)
 
