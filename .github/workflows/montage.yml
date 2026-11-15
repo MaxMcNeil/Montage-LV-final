@@ -176,9 +176,9 @@ jobs:
       PYTHONPATH: vpf
       # 🔗 CHAÎNE (vide pour un montage lancé à la main ou par une release : rien ne change alors)
       # 🧪 essai lancé sur une BRANCHE (pas main) : ton dossier Drive montage-joints n'est ni lu ni vidé, et le résultat
-      # va dans la release « out-montage-essai » (ton dernier montage « out-montage » reste intact)
+      # va dans la release « out-montage-essai-<n° du run> » (ton dernier montage « out-montage » reste intact)
       JOINTS_DRIVE: ${{ github.ref_name == 'main' && 'oui' || 'non' }}
-      TAG_OUT: ${{ github.ref_name == 'main' && 'out-montage' || 'out-montage-essai' }}
+      TAG_OUT: ${{ github.ref_name == 'main' && 'out-montage' || format('out-montage-essai-{0}', github.run_number) }}
       # 🎙 mode « commentaire d'une vidéo » (formulaire, ou choix fait dans le fond vert pour la chaîne) ; vide = normal
       MONTAGE_MODE: ${{ inputs.mode || github.event.client_payload.opts.mode || 'normal' }}
       MONTAGE_HABILLAGE_VERTICAL: ${{ inputs.habillage_vertical || github.event.client_payload.opts.habillage_vertical || 'au hasard' }}
