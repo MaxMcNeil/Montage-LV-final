@@ -145,24 +145,29 @@ fi
 
 [ "$MODE" = "lancer" ] || err "usage : chaine_suite.sh publier | lancer"
 [ -n "${VIDEO_URL:-}" ] || [ -n "${VIDEO_ID:-}" ] || err "aucune vidéo à transmettre (le job du montage n'a rien publié)"
-[ -n "${CHAINE_GH_TOKEN:-}" ] || err "jeton de chaîne absent (variable CHAINE_APP_ID + secret CHAINE_APP_KEY, ou secret CHAINE_TOKEN, dans Montage-LV-final). Le montage est publié ; corrige puis « Re-run failed jobs » (seul ce lancement est refait)."
-ST="$(printf '%s' "${SHORTS_SOUS_TITRES:-oui}" | tr 'A-Z' 'a-z')"; [ "$ST" = non ] || ST=oui
-python3 - "$CHAINE_ID" "${VIDEO_URL:-}" "${VIDEO_ID:-}" "${VIDEO_NOM:-montage.mp4}" "https://github.com/$REPO/actions/runs/${GITHUB_RUN_ID:-0}" "$ST" > bon-shorts.json <<'PY'
+if [ "${SANS_SHORTS:-}" = oui ]; then
+  # 🎙 mode « commentaire d'une vidéo » : pas de Shorts (choix du mode) ; montage-joints est rangé quand même
+  echo "### 🎙 Mode commentaire : pas de Shorts (montage publié)" >> "$SUM"
+else
+  [ -n "${CHAINE_GH_TOKEN:-}" ] || err "jeton de chaîne absent (variable CHAINE_APP_ID + secret CHAINE_APP_KEY, ou secret CHAINE_TOKEN, dans Montage-LV-final). Le montage est publié ; corrige puis « Re-run failed jobs » (seul ce lancement est refait)."
+  ST="$(printf '%s' "${SHORTS_SOUS_TITRES:-oui}" | tr 'A-Z' 'a-z')"; [ "$ST" = non ] || ST=oui
+  python3 - "$CHAINE_ID" "${VIDEO_URL:-}" "${VIDEO_ID:-}" "${VIDEO_NOM:-montage.mp4}" "https://github.com/$REPO/actions/runs/${GITHUB_RUN_ID:-0}" "$ST" > bon-shorts.json <<'PY'
 import json, sys
 i, url, fid, nom, origine, st = sys.argv[1:7]
 print(json.dumps({"event_type": "chaine-shorts", "client_payload": {
     "v": 2, "chaine_id": i, "video_url": url, "video_id": fid, "video_nom": nom, "origine": origine,
     "sous_titres": st}}, ensure_ascii=False))
 PY
-echo "Sous-titres dans les Shorts : $ST"
-cat bon-shorts.json
-OK=0
-for i in 1 2 3 4 5; do
-  if GH_TOKEN="$CHAINE_GH_TOKEN" gh api "repos/$CIBLE_REPO/dispatches" --input bon-shorts.json >/dev/null 2>dispatch.err; then OK=1; break; fi
-  echo "::warning::lancement des Shorts : essai $i échoué ($(tail -1 dispatch.err))"; sleep $((i * 15))
-done
-[ "$OK" = 1 ] || err "Shorts non lancés : $(tail -2 dispatch.err | tr '\n' ' '). L'app « chaine-maxmcneil » a-t-elle « Contents : Read and write » et est-elle installée sur Push-overlay ? Corrige puis « Re-run failed jobs »."
-echo "### ✅ 🔗 Chaîne \`$CHAINE_ID\` — Shorts lancés dans [Push-overlay](https://github.com/$CIBLE_REPO/actions)" >> "$SUM"
+  echo "Sous-titres dans les Shorts : $ST"
+  cat bon-shorts.json
+  OK=0
+  for i in 1 2 3 4 5; do
+    if GH_TOKEN="$CHAINE_GH_TOKEN" gh api "repos/$CIBLE_REPO/dispatches" --input bon-shorts.json >/dev/null 2>dispatch.err; then OK=1; break; fi
+    echo "::warning::lancement des Shorts : essai $i échoué ($(tail -1 dispatch.err))"; sleep $((i * 15))
+  done
+  [ "$OK" = 1 ] || err "Shorts non lancés : $(tail -2 dispatch.err | tr '\n' ' '). L'app « chaine-maxmcneil » a-t-elle « Contents : Read and write » et est-elle installée sur Push-overlay ? Corrige puis « Re-run failed jobs »."
+  echo "### ✅ 🔗 Chaîne \`$CHAINE_ID\` — Shorts lancés dans [Push-overlay](https://github.com/$CIBLE_REPO/actions)" >> "$SUM"
+fi
 
 # dossier montage-joints : seulement les fichiers réellement utilisés, une fois les Shorts lancés (jamais bloquant)
 if [ -n "${JOINTS_B64:-}" ]; then
@@ -175,4 +180,5 @@ if [ -n "${JOINTS_B64:-}" ]; then
     echo "::warning::Le dossier « $JOINTS » n'a pas pu être vidé : retire ces fichiers à la main avant la prochaine vidéo."
   fi
 fi
-echo "::notice title=Chaîne $CHAINE_ID::Shorts lancés dans Push-overlay"
+[ "${SANS_SHORTS:-}" = oui ] && echo "::notice title=Chaîne $CHAINE_ID::mode commentaire — montage publié, pas de Shorts" \
+  || echo "::notice title=Chaîne $CHAINE_ID::Shorts lancés dans Push-overlay"

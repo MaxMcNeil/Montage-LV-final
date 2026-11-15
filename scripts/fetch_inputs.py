@@ -363,6 +363,50 @@ def is_video(p: Path) -> bool:
     return p.suffix.lower() in VIDEO
 
 
+def commentaire_actif() -> bool:
+    return (os.environ.get("MONTAGE_MODE") or "").strip().lower().startswith("comment")
+
+
+def passages_commentaire(joints: str | None = None, local: list | None = None) -> None:
+    """MODE COMMENTAIRE : la liste des passages écrite par le prompteur (montage-joints/commentaire-passages.json) →
+    input/commentaire-passages.json. Rangée avec la vidéo commentée après un montage réussi (jamais reprise par erreur
+    pour une autre vidéo). Absente : le montage le dit dans PLAN.md et se fait comme d'habitude (jamais bloquant)."""
+    if not commentaire_actif():
+        return
+    joints = (joints or os.environ.get("CHAINE_JOINTS") or os.environ.get("MONTAGE_JOINTS_DRIVE")
+              or "montage-joints").strip().strip("/")
+    dst = IN / "commentaire-passages.json"
+    dst.unlink(missing_ok=True)
+    # jointe à la release / donnée en pièce jointe : prise telle quelle (rien à ranger dans Drive)
+    loc = [f for f in (local or []) if f.name.lower().endswith("passages.json")]
+    if loc:
+        shutil.copy(loc[0], dst)
+        print(f"Mode commentaire : liste des passages prise dans les fichiers joints ({loc[0].name})")
+        return
+    rem = rclone_remote()
+    if not rem:
+        msg = "mode commentaire : pas de Google Drive (RCLONE_CONF) → liste des passages du prompteur introuvable"
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+        return
+    r = sh(["rclone", "copyto", f"{rem}:{joints}/commentaire-passages.json", dst, "-q", "--retries", "3"], check=False)
+    if r.returncode != 0 or not dst.exists():
+        msg = (f"mode commentaire : « commentaire-passages.json » absent du dossier « {joints} » — lance d'abord le "
+               "prompteur (OSINT-teleprompter) en mode « commentaire d'une vidéo »")
+        print(f"::warning::{msg}")
+        WARN.append(msg)
+        return
+    try:
+        d = json.loads(dst.read_text(encoding="utf-8"))
+        print(f"Mode commentaire : {len(d.get('passages') or [])} passage(s) du prompteur pour « {d.get('video')} »")
+    except ValueError:
+        print("::warning::mode commentaire : commentaire-passages.json illisible")
+    lst = IN / "joints-utilises.txt"
+    old = lst.read_text(encoding="utf-8") if lst.exists() else ""
+    if "commentaire-passages.json" not in old.split():
+        lst.write_text(old + "commentaire-passages.json\n", encoding="utf-8")
+
+
 MEDIA_RE = re.compile(r"\.(" + "|".join(e.lstrip(".") for e in VIDEO + IMAGE) + r")$", re.I)
 
 
@@ -427,6 +471,7 @@ def chaine():
             ok.append(str(f.relative_to(jd)))
         (IN / "joints-utilises.txt").write_text("\n".join(ok) + ("\n" if ok else ""), encoding="utf-8")
         print(f"Dossier « {joints} » : {len(ok)} fichier(s) → " + ", ".join(ok))
+    passages_commentaire(joints)
     ext = main_video.suffix.lower() if is_video(main_video) else ".mp4"
     dst = IN / f"video{ext}"
     shutil.move(str(main_video), dst)
@@ -553,6 +598,7 @@ def main():
     for k, u in enumerate(rc_paths):   # « gdrive:dossier » ou « gdrive:dossier/fichier.mp4 » dans pieces_jointes
         files += from_rclone(u, RAW / f"rc{k}")
     files += drive_joints(RAW / "joints")   # dossier Drive montage-joints (comme dans la chaîne)
+    passages_commentaire(local=files)
     big = lambda fs: sorted([f for f in fs if is_video(f)], key=lambda f: f.stat().st_size, reverse=True)  # noqa: E731
     # vidéo principale :
     #   1. un fichier dont le nom commence par « moi » (moi.mp4, Moi_intro.mov…), où qu'il soit (release ou Drive) ;
@@ -560,7 +606,20 @@ def main():
     #   3. sinon la vidéo du premier lien Drive de la description.
     mine = big([f for f in files if is_mine(f.name)])
     direct = big([f for f in files if f.parent == RAW])   # fichiers de la release / de la source elle-même
-    main_video = (mine or direct or big(first_link) or big(files) or [None])[0]
+    # mode commentaire : la vidéo commentée (dossier montage-joints, ou du nom donné par le prompteur) n'est JAMAIS
+    # prise pour ta vidéo
+    if commentaire_actif():
+        try:
+            vc = json.loads((IN / "commentaire-passages.json").read_text(encoding="utf-8")).get("video") or ""
+        except (OSError, ValueError):
+            vc = ""
+        k = lambda n: re.sub(r"[\W_]+", "", Path(n).stem.lower())   # noqa: E731
+        commentee = lambda f: bool(vc) and k(f.name).endswith(k(vc))   # noqa: E731
+        direct = [f for f in direct if not commentee(f)]
+        rest = [f for f in files if not ((RAW / "joints") in f.parents or commentee(f))]
+    else:
+        rest = files
+    main_video = (mine or direct or big(first_link) or big(rest) or [None])[0]
     if main_video is None:
         die("Aucune vidéo trouvée : joins ta vidéo à la release (ou colle son lien Google Drive partagé dans la description).")
     print(f"Ta vidéo : {main_video.name}" + (" (nom commençant par « moi »)" if mine else ""))
