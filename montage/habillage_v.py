@@ -44,7 +44,11 @@ LAYOUT = {
     "story": {"cam": (0, 0, W, H), "media": (46, 1150, 848, 478), "full": True},
 }
 # sous-titres de ta voix (s'ils sont activés) : DANS ton cadre, en bas (MarginL, MarginR, MarginV, car./ligne)
-CAPS = {"newsroom": (70, 70, H - 840, 24), "warroom": (60, W - 686 + 24, H - 950, 17), "story": (60, 160, H - 1080, 24)}
+# Jamais sur ta bouche ni ton menton : newsroom = bande juste SOUS ton cadre (cadre raccourci quand les sous-titres
+# sont activés) ; war room = bas de ton cadre (cadre haut : sous le menton) ; story = haut de l'image, sous le bandeau
+# de la chaîne (sur les cheveux au pire, jamais sur la bouche)
+CAPS = {"newsroom": (70, 70, H - 962, 24), "warroom": (60, W - 686 + 24, H - 950, 17), "story": (60, 160, H - 500, 24)}
+CAM_SOUS_TITRES = {"newsroom": (36, 336, 1008, 440)}     # place libérée sous ton cadre pour tes sous-titres
 
 T = {
     "fr": {"live": "EN DIRECT", "som": "AU SOMMAIRE", "next": "À SUIVRE", "sujet": "SUJET {k} / {n}", "prog": "AU PROGRAMME",
@@ -100,9 +104,11 @@ def memoriser(theme: str, state: Path) -> None:
         pass
 
 
-def mise_en_page(theme: str) -> None:
+def mise_en_page(theme: str, sous_titres: bool = False) -> None:
     """Tes cadres et ceux des médias aux places de l'habillage (avant toute fabrication de carte)."""
     lay = LAYOUT[theme]
+    if sous_titres and theme in CAM_SOUS_TITRES:
+        lay["cam"] = CAM_SOUS_TITRES[theme]
     for side in ("left", "right"):
         C.GEOM["v"][side] = {"card": tuple(lay["cam"]), "panel": tuple(lay["media"])}
 
@@ -300,11 +306,12 @@ class Habillage:
         # titre du sujet (sous ton cadre)
         kick = tr(L, "sujet", k=k + 1, n=self.n) if self.n > 1 else (tr(L, "live"))
         fk = font("display", 40, kick)
-        ky = cam[1] + cam[3] + 14
+        subs = cam[3] < 500          # sous-titres activés : leur bande est juste sous ton cadre, le titre en dessous
+        ky = cam[1] + cam[3] + (192 if subs else 14)
         kw_ = int(width(d, kick, fk)) + 48
         d.rounded_rectangle((36, ky, 36 + kw_, ky + 58), 10, fill=RED + (255,))
         text(d, (36 + 24, ky + 29), kick, fk, (255, 255, 255, 255), "lm")
-        ft, lines = fit_lines(d, title, "serif", 860, 64, 44, 2)
+        ft, lines = fit_lines(d, title, "serif", 860, 56 if subs else 64, 40, 1 if subs else 2)
         th = int(len(lines) * ft.size * 1.08) + 34
         ty = ky + 56
         tw_ = int(max(width(d, x_, ft) for x_ in lines)) + 56

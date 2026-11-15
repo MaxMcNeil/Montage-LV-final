@@ -175,7 +175,7 @@ def main(argv=None) -> int:
             hv_theme = HV.choisir(opts.get("habillage_vertical", "au hasard"), Path("state/habillage_v.json"),
                                   f"{src.name}-{time.time()}")
             if hv_theme:
-                HV.mise_en_page(hv_theme)
+                HV.mise_en_page(hv_theme, opts.get("sous_titres") == "oui")
                 hv_info = f"{HV.NOMS[hv_theme]}" + (" (au hasard)" if "hasard" in str(opts.get("habillage_vertical"))
                                                      else "")
                 log.info("Habillage vertical : %s", hv_info)
