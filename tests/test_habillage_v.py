@@ -51,3 +51,19 @@ def test_fond_opaque_hors_fenetres(tmp_path):
 def test_arabe_et_sujet_unique(tmp_path):
     hv = HV.Habillage("newsroom", [(0, "تشريح الجثة موضع شك")], 100, "ar", "Gulf think-tank", None, [], tmp_path).build()
     assert hv.n == 1 and len(hv.layers) == 2
+
+
+def test_sous_titres_mot_avec_espace_insecable(monkeypatch):
+    """« 1 200 » transcrit avec une espace : plus jamais d'erreur dans les sous-titres (montage arrêté avant)."""
+    from types import SimpleNamespace as NS
+    from montage.ass import ASS
+    sub = ASS("v", "fr")
+    sub.theme = "newsroom"
+    seg = NS(kind="full", out0=0.0, dur=20.0, atoms=[NS(a=0.0, b=20.0)], side="left")
+    words = [{"w": w, "t0": i * 0.4, "t1": i * 0.4 + 0.3} for i, w in enumerate(
+        ["Les", "ménages", "ont", "payé", "1 200", "euros", "de", "plus", "l'hiver", "dernier."])]
+    import montage.ass as A
+    monkeypatch.setattr(A, "out_time", lambda segs, t: t)
+    monkeypatch.setattr(A, "seg_at", lambda segs, t: seg)
+    sub.captions(words, [seg], set())
+    assert any("1 200" in e or "1\\h200" in e or "200" in e for e in sub.ev)

@@ -164,7 +164,9 @@ class ASS:
             out, k = [], 0
             for li, ln in enumerate(lines):
                 parts = []
-                for _ in ln.split():
+                for _ in ln.split(" "):   # (pas split() : un mot peut contenir une espace insécable)
+                    if k >= len(toks):
+                        break
                     tok, gold = toks[k]
                     k += 1
                     parts.append(r"{\c" + ass_color(C.GOLD_HI) + "}" + esc(tok) + r"{\c&HFFFFFF&}" if gold else esc(tok))
