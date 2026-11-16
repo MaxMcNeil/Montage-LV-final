@@ -44,11 +44,11 @@ LAYOUT = {
     "story": {"cam": (0, 0, W, H), "media": (46, 1150, 848, 478), "full": True},
 }
 # sous-titres de ta voix (s'ils sont activés) : DANS ton cadre, en bas (MarginL, MarginR, MarginV, car./ligne)
-# Jamais sur ta bouche ni ton menton : newsroom = bande juste SOUS ton cadre (cadre raccourci quand les sous-titres
-# sont activés) ; war room = bas de ton cadre (cadre haut : sous le menton) ; story = haut de l'image, sous le bandeau
+# Jamais sur ta bouche ni ton menton : newsroom et war room = bande juste SOUS ton cadre (cadre
+# raccourci quand les sous-titres sont activés) ; story = haut de l'image, sous le bandeau
 # de la chaîne (sur les cheveux au pire, jamais sur la bouche)
-CAPS = {"newsroom": (70, 70, H - 962, 24), "warroom": (60, W - 686 + 24, H - 950, 17), "story": (60, 160, H - 500, 24)}
-CAM_SOUS_TITRES = {"newsroom": (36, 336, 1008, 440)}     # place libérée sous ton cadre pour tes sous-titres
+CAPS = {"newsroom": (70, 70, H - 962, 24), "warroom": (60, W - 686 + 24, H - 990, 17), "story": (60, 160, H - 500, 24)}
+CAM_SOUS_TITRES = {"newsroom": (36, 336, 1008, 440), "warroom": (36, 326, 650, 470)}     # place libérée sous ton cadre pour tes sous-titres
 
 T = {
     "fr": {"live": "EN DIRECT", "som": "AU SOMMAIRE", "next": "À SUIVRE", "sujet": "SUJET {k} / {n}", "prog": "AU PROGRAMME",
