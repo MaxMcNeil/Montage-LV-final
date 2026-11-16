@@ -149,6 +149,7 @@ DEFAULTS = {
     "habillage": "oui",             # oui (horizontal) : là où rien n'est prévu, toi dans ton cadre + carte de ta phrase
     "decor": "non",                 # retiré à ta demande (logo derrière toi) : jamais appliqué
     "mode": "normal",               # normal | commentaire (d'une vidéo) : vidéo commentée en pause à côté de toi, relancée à chaque « écoutez ça »
+    "habillage_vertical": "au hasard",  # vidéo VERTICALE seulement : au hasard | newsroom | war room | story | actuel
     "pack": "oui",                  # oui : animations du pack de la chaîne (chaines/<code>/habillage) sur la vidéo horizontale
     "format": "auto",               # auto = même format que ta vidéo | horizontal | vertical (forcé)
 }

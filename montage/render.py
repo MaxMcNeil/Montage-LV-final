@@ -139,12 +139,21 @@ class Ctx:
         return f"crop={ww}:{hh}:{x}:{y},scale={cw}:{ch}:flags=bicubic,setsar=1"
 
     def ass_tail(self, off: float) -> str:
+        # habillage vertical : posé SOUS les textes (sous-titres, crédits, accroche) — voir Graph.run
+        th = f"§HV{off:.4f}§" if (THEME is not None and self.o == "v" and not getattr(_TL, "notheme", False)) else ""
         if not self.ass or not Path(self.ass).exists():
-            return "format=yuv420p"
+            return th + "format=yuv420p"
+        if th:
+            fd = f":fontsdir='{self.fonts}'" if self.fonts and Path(self.fonts).is_dir() else ""
+            return (f"{th}setpts=PTS+{off:.4f}/TB,ass=filename='{self.ass}'{fd},setpts=PTS-STARTPTS,"
+                    "format=yuv420p")
         fd = f":fontsdir='{self.fonts}'" if self.fonts and Path(self.fonts).is_dir() else ""
         return f"setpts=PTS+{off:.4f}/TB,ass=filename='{self.ass}'{fd},setpts=PTS-STARTPTS,format=yuv420p"
 
 
+# Habillage VERTICAL (montage/habillage_v.py) : newsroom / war room / story — None = rendu habituel
+THEME = None
+THEME_FAILS: list = []          # passages rendus SANS habillage après un échec (signalés dans PLAN.md)
 # Habillage de chaîne (montage/chaine.py) : {"bug", "bug_xy", "end", "end_xy", "end_t0"} — None = aucun logo.
 BRAND: dict | None = None
 BRAND_FAILS: list = []          # segments rendus SANS logo après un échec (signalés dans PLAN.md)
@@ -189,7 +198,21 @@ class Graph:
             cur = "brand2"
         return cur
 
+    def _theme(self, n: int):
+        """Remplace le repère §HV…§ (posé par ass_tail) par l'habillage vertical, sous les textes."""
+        import re as _re
+        for k, ln in enumerate(self.lines):
+            m = _re.search(r"§HV([0-9.]+)§", ln)
+            if not m:
+                continue
+            off = float(m.group(1))
+            cur = THEME.graph(self, "hvin", off, n / FPS, getattr(_TL, "state", "solo"), FPS)
+            self.lines[k] = ln.replace(m.group(0), f"format=yuv420p[hvin];[{cur}]format=yuv420p,")
+        return
+
     def run(self, out: Path, n: int, label: str, script: Path):
+        if THEME is not None and any("§HV" in ln for ln in self.lines):
+            self._theme(n)
         label = self._brand(label, n)
         script.write_text(";\n".join(self.lines), encoding="utf-8")
         cmd = ["ffmpeg", "-y"]
@@ -233,10 +256,36 @@ def _talk(g: Graph, ctx: Ctx, atoms, chain_for, decor: bool = False) -> str:
 
 
 def render_full(seg, ctx: Ctx, out: Path):
+    if THEME is not None and ctx.o == "v" and not THEME.lay["full"] and not getattr(_TL, "notheme", False):
+        return _render_full_cam(seg, ctx, out)
     g = Graph()
     _talk(g, ctx, seg.atoms, lambda at, dec=None: ctx.full_chain(at.zoom, decor_in=dec), decor=True)
     g.add(f"[cat]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
     g.run(out, seg.n, "out", out.with_suffix(".txt"))
+
+
+def _render_full_cam(seg, ctx: Ctx, out: Path):
+    """Habillage vertical (newsroom, war room) : toi seul = toi dans ton cadre, à sa place (le reste de l'image est
+    couvert par l'habillage : sommaire, titres)."""
+    W, H, N = ctx.W, ctx.H, seg.n
+    cx, cy, cw, ch = GEOM[ctx.o]["left"]["card"]
+    P = C.SHADOW_PAD
+    lay = card_layers(cw, ch, ctx.work / "layers")
+    g = Graph()
+    _talk(g, ctx, seg.atoms, lambda at: ctx.full_chain(1.0))
+    tdur = seg.dur + 1
+    im_mask = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", lay["mask"])
+    im_under = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", lay["under"])
+    im_over = g.inp("-loop", "1", "-framerate", FPS, "-t", f"{tdur:.3f}", "-i", lay["over"])
+    g.add(f"color=c={C.ff_color(C.NAVY_DEEP)}:s={W}x{H}:r={FPS},format=yuv420p[bg]")
+    g.add(f"[cat]{ctx.card_crop(cw, ch)},format=yuva420p[cv]")
+    g.add(f"[{im_mask}:v]format=gray,scale={cw}:{ch}[mk]")
+    g.add("[cv][mk]alphamerge[card]")
+    g.add(f"[bg][{im_under}:v]overlay=x={cx - P}:y={cy - P}:shortest=1[b1]")
+    g.add(f"[b1][card]overlay=x={cx}:y={cy}:shortest=1[b2]")
+    g.add(f"[b2][{im_over}:v]overlay=x={cx}:y={cy}:shortest=1,fps={FPS},settb=1/{FPS},format=yuv420p[b3]")
+    g.add(f"[b3]tpad=stop_mode=clone:stop_duration=1,{ctx.ass_tail(seg.out0)}[out]")
+    g.run(out, N, "out", out.with_suffix(".txt"))
 
 
 def render_split(seg, ctx: Ctx, out: Path):
@@ -261,10 +310,17 @@ def render_split(seg, ctx: Ctx, out: Path):
     g.add("[bg0][tint]overlay=shortest=1[bg]")
     g.add(f"[ccard]{ctx.card_crop(cw, ch)},format=yuva420p[cv]")
     g.add(f"[{im_mask}:v]format=gray,scale={cw}:{ch}[mk]")
-    g.add("[cv][mk]alphamerge[card]")
-    g.add(f"[bg][{im_under}:v]overlay=x={cx - P}:y={cy - P}:shortest=1[b1]")
-    g.add(f"[b1][card]overlay=x={cx}:y={cy}[b2]")
-    g.add(f"[b2][{im_over}:v]overlay=x={cx}:y={cy}:shortest=1[b3]")
+    if (cw, ch) == (W, H):   # habillage « story » : toi en plein écran (ni coins arrondis, ni filet, ni ombre)
+        g.add("[mk]nullsink")
+        g.add(f"[{im_under}:v]nullsink")
+        g.add("[cv]format=yuv420p[card]")
+        g.add("[bg][card]overlay=x=0:y=0:shortest=1[b2]")
+        g.add(f"[b2][{im_over}:v]overlay=x=0:y=0:shortest=1:enable='lt(t,0)'[b3]")
+    else:
+        g.add("[cv][mk]alphamerge[card]")
+        g.add(f"[bg][{im_under}:v]overlay=x={cx - P}:y={cy - P}:shortest=1[b1]")
+        g.add(f"[b1][card]overlay=x={cx}:y={cy}[b2]")
+        g.add(f"[b2][{im_over}:v]overlay=x={cx}:y={cy}:shortest=1[b3]")
     # carte média (avec photo animée derrière le trou du cadre)
     panel, ox, oy = _fit_panel(panel, px, py, pw, ph, ctx.work)
     fw, fh = panel["size"]
@@ -467,14 +523,21 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
         g.add(f"[acard]{ctx.card_crop(cw, ch)},zoompan=z='1.0+0.04*on/{max(1, N)}':x='iw/2-(iw/zoom/2)':"
               f"y='ih/2-(ih/zoom/2)':d=1:s={cw}x{ch}:fps={FPS},setsar=1,format=yuva420p[cv]")
         g.add(f"[{ims['m']}:v]format=gray,scale={cw}:{ch}[mk]")
-        g.add("[cv][mk]alphamerge[card]")
+        if (cw, ch) == (W, H):   # habillage « story » : toi (qui écoutes) en plein écran
+            g.add("[mk]nullsink")
+            g.add(f"[{ims['u']}:v]nullsink")
+            g.add("[cv]format=yuv420p[card]")
+            g.add("[bg][card]overlay=x=0:y=0:shortest=1[b2]")
+            g.add(f"[b2][{ims['o']}:v]overlay=x=0:y=0:shortest=1:enable='lt(t,0)'[b3]")
+        else:
+            g.add("[cv][mk]alphamerge[card]")
+            g.add(f"[bg][{ims['u']}:v]overlay=x={cx - P}:y={cy - P}:shortest=1[b1]")
+            g.add(f"[b1][card]overlay=x={cx}:y={cy}:shortest=1[b2]")
+            g.add(f"[b2][{ims['o']}:v]overlay=x={cx}:y={cy}:shortest=1[b3]")
         g.add(f"[cl]scale={vw}:{vh}:force_original_aspect_ratio=increase:flags=bicubic,crop={vw}:{vh},setsar=1,"
               f"format=yuva420p[clv]")
         g.add(f"[{ims['vm']}:v]format=gray,scale={vw}:{vh}[vmk]")
         g.add("[clv][vmk]alphamerge[clr]")
-        g.add(f"[bg][{ims['u']}:v]overlay=x={cx - P}:y={cy - P}:shortest=1[b1]")
-        g.add(f"[b1][card]overlay=x={cx}:y={cy}:shortest=1[b2]")
-        g.add(f"[b2][{ims['o']}:v]overlay=x={cx}:y={cy}:shortest=1[b3]")
         g.add(f"[b3][{ims['vu']}:v]overlay=x={vx - P}:y={vy - P}:shortest=1[b4]")
         g.add(f"[b4][clr]overlay=x={vx}:y={vy}:shortest=1[b5]")
         g.add(f"[b5][{ims['vo']}:v]overlay=x={vx}:y={vy}:shortest=1,{norm}[x1]")
@@ -582,7 +645,17 @@ def render_video(segs, ctx: Ctx, out: Path, workers: int = 2) -> Path:
     def go(job):
         fn, args, f = job
         _TL.t0, _TL.off = args[0].out0, False
+        _TL.state, _TL.notheme = ("solo" if args[0].kind == "full" else "media"), False
         try:
+            if THEME is not None and ctx.o == "v":
+                try:
+                    fn(*args)
+                    return f
+                except Exception as e:  # noqa: BLE001 - l'habillage ne doit jamais coûter un passage
+                    log.warning("segment %s : échec avec l'habillage vertical → nouvel essai sans : %s", f.name,
+                                str(e)[-300:])
+                    _TL.notheme = True
+                    THEME_FAILS.append(f.name)
             try:
                 fn(*args)
             except Exception as e:  # noqa: BLE001

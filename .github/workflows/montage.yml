@@ -20,6 +20,11 @@ on:
         type: choice
         options: [normal, "commentaire d'une vidéo"]
         default: normal
+      habillage_vertical:
+        description: "📱 Habillage de la vidéo montée en VERTICAL (l'horizontal ne change pas) : au hasard (jamais 2 fois de suite le même) · newsroom · war room · story · actuel"
+        type: choice
+        options: [au hasard, newsroom, war room, story, actuel]
+        default: au hasard
       source:
         description: "Vidéo — VIDE = ta vidéo « moi… » déposée dans le dossier Drive montage-joints (avec tes extraits). Sinon : gdrive:dossier/moi.mp4, lien Drive ou tag de release. 📌 Après : titre ✅ = publie, ⚠ = regarde PLAN.md"
         required: false
@@ -171,11 +176,12 @@ jobs:
       PYTHONPATH: vpf
       # 🔗 CHAÎNE (vide pour un montage lancé à la main ou par une release : rien ne change alors)
       # 🧪 essai lancé sur une BRANCHE (pas main) : ton dossier Drive montage-joints n'est ni lu ni vidé, et le résultat
-      # va dans la release « out-montage-essai » (ton dernier montage « out-montage » reste intact)
+      # va dans la release « out-montage-essai-<n° du run> » (ton dernier montage « out-montage » reste intact)
       JOINTS_DRIVE: ${{ github.ref_name == 'main' && 'oui' || 'non' }}
-      TAG_OUT: ${{ github.ref_name == 'main' && 'out-montage' || 'out-montage-essai' }}
+      TAG_OUT: ${{ github.ref_name == 'main' && 'out-montage' || format('out-montage-essai-{0}', github.run_number) }}
       # 🎙 mode « commentaire d'une vidéo » (formulaire, ou choix fait dans le fond vert pour la chaîne) ; vide = normal
       MONTAGE_MODE: ${{ inputs.mode || github.event.client_payload.opts.mode || 'normal' }}
+      MONTAGE_HABILLAGE_VERTICAL: ${{ inputs.habillage_vertical || github.event.client_payload.opts.habillage_vertical || 'au hasard' }}
       CHAINE_ID: ${{ github.event.client_payload.chaine_id }}
       MONTAGE_CHAINE_SHORTS: ${{ inputs.chaine_shorts }}   # verrou : en chaîne, jamais de sous-titres dans la vidéo montée
       CHAINE_VIDEO_ID: ${{ github.event.client_payload.video_id }}
@@ -437,9 +443,10 @@ jobs:
     name: 🔗 Chaîne — lancer les Shorts
     needs: montage
     # chaîne depuis le fond vert, OU lancement à la main avec « chaine_shorts = oui » (montage déposé quelque part)
+    # 🧪 essai lancé sur une branche : jamais de Shorts lancés dans Push-overlay
     if: >-
       (github.event_name == 'repository_dispatch' && needs.montage.outputs.chaine_id != '') ||
-      (github.event_name == 'workflow_dispatch' && inputs.chaine_shorts == 'oui' &&
+      (github.event_name == 'workflow_dispatch' && inputs.chaine_shorts == 'oui' && github.ref_name == 'main' &&
        (needs.montage.outputs.video_url != '' || needs.montage.outputs.video_id != ''))
     runs-on: ubuntu-24.04
     timeout-minutes: 15

@@ -164,6 +164,28 @@ def main(argv=None) -> int:
         brand = {"notes": [f"⚠ habillage de chaîne abandonné ({type(e).__name__}: {e}) : montage sans logo"]}
         log.warning("%s", brand["notes"][0])
 
+    # 1c) HABILLAGE VERTICAL (vidéo montée en vertical seulement ; l'horizontal ne change jamais) : choisi maintenant,
+    #     car tes cadres et ceux des médias prennent ses places avant que les cartes soient fabriquées
+    import copy as _copy
+    from . import habillage_v as HV
+    geom_v0 = _copy.deepcopy(C.GEOM["v"])
+    hv_theme, hv_info = None, ""
+    if orient == "v" and opts.get("mode") != "commentaire":
+        try:
+            hv_theme = HV.choisir(opts.get("habillage_vertical", "au hasard"), Path("state/habillage_v.json"),
+                                  f"{src.name}-{time.time()}")
+            if hv_theme:
+                HV.mise_en_page(hv_theme, opts.get("sous_titres") == "oui")
+                hv_info = f"{HV.NOMS[hv_theme]}" + (" (au hasard)" if "hasard" in str(opts.get("habillage_vertical"))
+                                                     else "")
+                log.info("Habillage vertical : %s", hv_info)
+        except Exception as e:  # noqa: BLE001 - jamais bloquant
+            log.warning("habillage vertical : choix impossible (%s) → habillage actuel", e)
+            hv_theme = None
+            C.GEOM["v"].update(_copy.deepcopy(geom_v0))
+    elif orient == "v":
+        hv_info = "actuel (mode commentaire : la vidéo commentée garde sa mise en page)"
+
     # 2) pièces jointes + plan éditorial
     ai = AI()
     att = list_attachments(Path(a.attachments))
@@ -669,6 +691,8 @@ def main(argv=None) -> int:
         """Textes à l'écran (accroche, chapitres, crédits des extraits, sous-titres, fin) pour un format donné."""
         from .render import face_in_output
         sub = ASS(o_, lang, face_in_output(face, vinfo, o_))   # ton visage tel qu'il est DANS l'image montée
+        if main_ and o_ == "v" and hv_theme:
+            sub.theme = hv_theme          # habillage vertical : textes à leurs places (jamais sous l'interface YouTube)
         sub.no_caps = opts["sous_titres"] == "non"
         h0 = (segs[0].dur + 0.25) if opener and segs and segs[0].kind == "insert" else 0.25
         hook_end = h0 + 4.2 if plan.get("hook") else 0.0
@@ -711,6 +735,20 @@ def main(argv=None) -> int:
                     brand["notes"].append(f"grand logo de fin omis ({e})")
         return sub, chap_times
 
+    # habillage vertical : images par sujet (chapitres) préparées AVANT les textes (en cas d'échec : habillage actuel)
+    hv = None
+    if hv_theme:
+        try:
+            prof_ = brand.get("profil") or {}
+            hv = HV.Habillage(hv_theme, HV.sujets(plan, segs, sents, total, out_time), total, lang,
+                              prof_.get("nom") or "", str(prof_["logo"]) if prof_.get("logo") else None,
+                              HV.lieux(plan), work).build()
+            log.info("Habillage vertical %s : %d sujet(s)", HV.NOMS[hv_theme], hv.n)
+        except Exception as e:  # noqa: BLE001 - jamais bloquant
+            log.warning("habillage vertical impossible (%s) → habillage actuel", e)
+            hv, hv_theme = None, None
+            hv_info = f"⚠ habillage vertical impossible ({type(e).__name__}) : habillage actuel"
+            C.GEOM["v"].update(_copy.deepcopy(geom_v0))
     sub, chap_times = _textes(orient)
     outro_t = [s_.out0 for s_ in segs if s_.kind == "split" and s_.panel and s_.panel["v"] is outro_v][:1] \
         if outro_v is not None and outro_v.get("placed") else []
@@ -724,6 +762,9 @@ def main(argv=None) -> int:
     # (logo qui tournait derrière toi : retiré à ta demande — ctx.decor reste vide)
     from . import render as R
     R.BRAND = brand_check(brand, work / "chaine")
+    R.THEME, R.THEME_FAILS[:] = (hv if orient == "v" else None), []
+    if R.THEME is not None:
+        R.BRAND = None      # le logo de la chaîne est dans l'habillage (jamais deux logos)
     R.BRAND_FAILS.clear()
     R.OPENER_NOTES.clear()
     R.INSERT_NOTES.clear()
@@ -739,17 +780,48 @@ def main(argv=None) -> int:
     aud = build_audio(segs, main_wav, work / "mix.wav", opts["effets_sonores"] != "non", list(chap_times) + outro_t)
     # « logo incrusté » écrit dans le fichier : Push-overlay (Shorts) n'ajoute alors pas un 2e petit logo
     tagc = ""
+    if R.THEME is not None and (brand.get("profil") or {}).get("logo"):
+        tagc = f"montage-lv-final;logo=v-habillage;chaine={(brand.get('profil') or {}).get('code', '')};langue={lang}"
     if R.BRAND and R.BRAND.get("bug") and len(R.BRAND_FAILS) < len(segs):
         prof_ = brand.get("profil") or {}
         tagc = f"montage-lv-final;logo={orient}-haut-droite;chaine={prof_.get('code', '')};langue={lang}"
     final = mux(vid, aud, outd / "montage-final.mp4", comment=tagc)
     log.info("Vidéo finale : %s (%.0f s, rendu en %.0f min)", final, total, (time.time() - T0) / 60)
+    if R.THEME is not None:
+        HV.memoriser(hv_theme, Path("state/habillage_v.json"))
+        if R.THEME_FAILS:
+            hv_info += f" — ⚠ {len(R.THEME_FAILS)} passage(s) sans habillage (rendu refait sans, pour ne rien perdre)"
     # 7b) vidéo HORIZONTALE + Shorts enchaînés : une version VERTICALE propre pour les Shorts (mêmes coupes, mêmes
     #     cartes, même son), sinon Push-overlay découperait une bande au centre (cartes, cadres et titres coupés)
     vert_note = None
     want_v = (os.environ.get("MONTAGE_VERSION_VERTICALE") or "auto").strip().lower()
     chained = bool((os.environ.get("CHAINE_ID") or "").strip()) or \
         (os.environ.get("MONTAGE_CHAINE_SHORTS") or "").strip().lower() == "oui"
+    if orient == "v" and R.THEME is not None and chained:
+        # habillage vertical + Shorts enchaînés : les Shorts sont découpés dans une version SANS habillage (sinon
+        # sommaire, titres et bandeaux se retrouveraient dans les Shorts, sous leurs propres textes)
+        render_min = (time.time() - T_RENDER0) / 60
+        left_min = float(os.environ.get("MONTAGE_BUDGET_MIN", "320")) - (time.time() - T0) / 60
+        theme_keep = R.THEME
+        if render_min * 1.3 + 5 > left_min:
+            vert_note = (f"⚠ version sans habillage pour les Shorts non faite (temps restant {left_min:.0f} min) : "
+                         "les Shorts seront découpés dans la vidéo habillée")
+        else:
+            R.THEME = None
+            geom_th = _copy.deepcopy(C.GEOM["v"])
+            C.GEOM["v"].update(_copy.deepcopy(geom_v0))
+            try:
+                vert_note = _vertical_version(segs, sub_fn=_textes, brand=brand, aud=aud, vsrc=vsrc, vinfo=vinfo,
+                                              face=face, work=work, outd=outd, fonts=fonts, lang=lang)
+                vert_note = vert_note.replace("version verticale pour les Shorts", "version SANS habillage pour les Shorts")
+            except Exception as e:  # noqa: BLE001 - jamais bloquant
+                log.warning("version sans habillage pour les Shorts impossible : %s", e)
+                vert_note = (f"⚠ version sans habillage pour les Shorts impossible ({type(e).__name__}) : Shorts découpés "
+                             "dans la vidéo habillée")
+            finally:
+                C.GEOM["v"].update(geom_th)
+                R.THEME = theme_keep
+        log.info("Shorts : %s", vert_note)
     if orient == "h" and opts.get("mode") != "commentaire" and (want_v == "oui" or (want_v == "auto" and chained)):
         render_min = (time.time() - T_RENDER0) / 60
         left_min = float(os.environ.get("MONTAGE_BUDGET_MIN", "320")) - (time.time() - T0) / 60
@@ -792,6 +864,10 @@ def main(argv=None) -> int:
     for n_ in R.INSERT_NOTES:
         if n_.startswith("⚠"):
             qc.append((False, n_.lstrip("⚠ ")))
+    if hv_info:
+        brand.setdefault("notes", []).append("📱 Habillage vertical : " + hv_info)
+        if R.THEME_FAILS:
+            qc.append((False, f"habillage vertical absent sur {len(R.THEME_FAILS)} passage(s) (rendu refait sans)"))
     if vert_note:
         brand.setdefault("notes", []).append("📱 " + vert_note)
         if vert_note.startswith("⚠"):
