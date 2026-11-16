@@ -331,7 +331,7 @@ class Habillage:
             yy = my + 76
             for j in range(lo, min(self.n, lo + 4)):
                 t_ = self.topics[j][1]
-                fi, li = fit_lines(d, t_, "sans", 470, 38, 30, 1)
+                fi, li = fit_lines(d, t_, "sans", 470, 38, 32, 1)
                 if j == k:
                     d.rounded_rectangle((mx + 14, yy - 6, mx + 560, yy + 60), 12, fill=(255, 255, 255, 255))
                 col = NAVY + (255,) if j == k else ((223, 231, 246, 110) if j < k else (223, 231, 246, 255))
