@@ -647,8 +647,9 @@ class Habillage:
         for an in self.anim:
             i = g.inp("-loop", "1", "-framerate", fps, "-t", f"{dur + 1:.3f}", "-i", an["png"])
             if an["kind"] == "ticker":
-                sign = "-" if an.get("rtl") else ""
-                x_expr = f"mod({sign}(t+{off:.3f})*{an['speed']:.1f}+{an['per'] * 4},{an['per']})"
+                # gauche → droite pour l'arabe (sens de lecture) ; toujours entre 0 et la longueur d'un tour (jamais négatif)
+                m_ = f"mod((t+{off:.3f})*{an['speed']:.1f},{an['per']})"
+                x_expr = f"{an['per']}-{m_}" if an.get("rtl") else m_
                 t_ = lab()
                 g.add(f"[{i}:v]format=rgba,crop=w={an['w']}:h={an['h']}:x='{x_expr}':y=0[{t_}]")
                 out = lab()
