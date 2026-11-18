@@ -161,6 +161,9 @@ def classify(log: str) -> dict:
         l = ANSI.sub("", re.sub(r"^\S+Z\s", "", l))
         if echoed or l.startswith(("##[group]", "##[endgroup]", "shell:", "env:")):
             continue
+        # refus d'UN modèle alors que la clé a été vérifiée valide : géré par le programme, jamais « renouvelle la clé »
+        if re.search(r"la cl[ée] est valide|cl[ée] valide \(v[ée]rifi", l, re.I):
+            continue
         clean.append(l)
     tail = "\n".join(clean[-400:])
     low = tail.lower()

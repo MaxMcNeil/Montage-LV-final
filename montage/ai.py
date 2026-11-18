@@ -117,8 +117,13 @@ class _MiniGemini:
                         last = str(e)
                         continue
                 last = f"HTTP {r.status_code} {r.text[:120]}"
-                if r.status_code in (404, 400, 403, 429):
+                # écarté pour le run : modèle introuvable/refusé à CETTE clé, ou quota du JOUR ; une limite par minute
+                # (429 sans « per day ») est passagère : ni la clé ni le modèle ne sont condamnés
+                if r.status_code in (404, 400, 403) or (r.status_code == 429 and re.search(
+                        r"per ?day|perday|daily", r.text, re.I)):
                     self.dead.add((k, m))
+                elif r.status_code == 429:
+                    time.sleep(5)
                 if r.status_code >= 500:
                     time.sleep(3)
         raise RuntimeError(f"Gemini indisponible : {last}")
