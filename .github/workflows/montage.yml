@@ -21,7 +21,7 @@ on:
         options: [normal, "commentaire d'une vidéo"]
         default: normal
       habillage_vertical:
-        description: "📱 Habillage de la vidéo montée en VERTICAL (l'horizontal ne change pas) : au hasard (jamais 2 fois de suite le même) · newsroom · war room · story · actuel"
+        description: "📱 Habillage de la vidéo montée en VERTICAL (la version horizontale ne change jamais). ▸ au hasard = un des 3 habillages ci-dessous, jamais le même 2 fois de suite ▸ newsroom = style chaîne d'info : bandeau de la chaîne + « EN DIRECT », toi dans un grand cadre, titre du sujet, sommaire avec le sujet en cours surligné, « À SUIVRE » et bandeau défilant ▸ war room = centre de commandement : fond noir quadrillé, cadres de visée, « CAM 01 · ANALYSTE », dossier en cours et dossiers à venir, radar des lieux que tu cites ▸ story = pensé pour le téléphone : toi en plein écran, une barre de progression par sujet, grand titre doré, « ENSUITE » ▸ actuel = aucun habillage, mise en page habituelle. Les titres et les sujets viennent toujours de ta vidéo (rien d'inventé)."
         type: choice
         options: [au hasard, newsroom, war room, story, actuel]
         default: au hasard
