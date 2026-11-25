@@ -135,26 +135,35 @@ class _MiniGroq:
 
     def __init__(self, ks):
         self.keys = ks
+        self.morts = set()
 
     def json(self, prompt, image=None, timeout=120):
         if image:
             raise RuntimeError("Groq : pas d'image")
         last = ""
+        # chaque modèle Groq a SES limites : un modèle saturé (429) ou retiré → le suivant AUSSITÔT
+        modeles = list(dict.fromkeys([self.MODEL, "openai/gpt-oss-120b", "llama-3.3-70b-versatile", "qwen/qwen3-32b"]))
         for k in self.keys:
-            try:
-                r = requests.post(self.URL, headers={"Authorization": f"Bearer {k}"}, timeout=timeout, json={
-                    "model": self.MODEL, "temperature": 0.3, "response_format": {"type": "json_object"},
-                    "messages": [{"role": "user", "content": prompt + "\n\nRéponds uniquement en JSON."}]})
-            except requests.RequestException as e:
-                last = str(e)
-                continue
-            if r.status_code == 200:
+            for mod in modeles:
+                if (k, mod) in self.morts:
+                    continue
                 try:
-                    return parse_json_loose(r.json()["choices"][0]["message"]["content"])
-                except (KeyError, IndexError, ValueError) as e:
+                    r = requests.post(self.URL, headers={"Authorization": f"Bearer {k}"}, timeout=timeout, json={
+                        "model": mod, "temperature": 0.3, "response_format": {"type": "json_object"},
+                        "messages": [{"role": "user", "content": prompt + "\n\nRéponds uniquement en JSON."}]})
+                except requests.RequestException as e:
                     last = str(e)
                     continue
-            last = f"HTTP {r.status_code} {r.text[:120]}"
+                if r.status_code == 200:
+                    try:
+                        return parse_json_loose(r.json()["choices"][0]["message"]["content"])
+                    except (KeyError, IndexError, ValueError) as e:
+                        last = str(e)
+                        continue
+                last = f"HTTP {r.status_code} {r.text[:120]}"
+                if r.status_code in (400, 404) and re.search(r"model|terms acceptance|decommission", r.text, re.I) \
+                        or (r.status_code == 429 and re.search(r"per ?day|daily|tpd|rpd", r.text, re.I)):
+                    self.morts.add((k, mod))      # retiré, réservé ou quota du jour de CE modèle : plus réessayé
         raise RuntimeError(f"Groq indisponible : {last}")
 
 
