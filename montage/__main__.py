@@ -1005,6 +1005,7 @@ def claim_searches(plan, lot_info, inserts, orient, work, lang, ai, maxd, max_in
         info["contre"] += [dict(x, claim=p) for x in posts if x.get("position") == "contre"]
         arts = [a for a in arts if (a.get("position") or "") != "contre" and a.get("titre")]
         posts = [x for x in posts if x.get("position") != "contre"]
+        info.setdefault("messages", []).extend(dict(x, claim=p) for x in posts if x.get("social") == "telegram")
         soc_clips = social_clips(posts)
         it["found"] = (len(res.get("clips") or []), len(arts), len(posts))
         it["detail"] = _search_detail(res, soc_clips)
@@ -1709,6 +1710,20 @@ def write_report(outd, plan, segs, chosen, sents, info, total, lang, opts, att, 
             for k_, v_ in soc.items():
                 if str(v_).startswith("⚠"):
                     L.append(f"  - 🔧 À régler ({k_}, n'empêche pas de publier) : {str(v_).lstrip('⚠ ')}")
+        msgs, seen_m = [], set()
+        for m_ in press_info.get("messages") or []:
+            if m_.get("url") and m_["url"] not in seen_m:
+                seen_m.add(m_["url"])
+                msgs.append(m_)
+        if msgs:
+            L.append(f"\n## 📨 Messages Telegram trouvés ({len(msgs)}) — utilisés ou non dans la vidéo\n")
+            for m_ in msgs[:20]:
+                about = f" — sur « {m_['claim']['target']} »" if isinstance(m_.get("claim"), dict) else ""
+                vid = " 🎬 vidéo" if m_.get("video_url") else ""
+                L.append(f"- {m_.get('source') or 'Telegram'} ({_fmt_date(m_.get('date', '')) or '?'}){vid} : "
+                         f"{(m_.get('texte') or m_.get('titre') or '')[:180]} — {m_.get('url')}{about}")
+            if len(msgs) > 20:
+                L.append(f"- … et {len(msgs) - 20} autre(s)")
     contre = list((press_info or {}).get("contre") or []) + list((lot_info or {}).get("contre") or [])
     if contre:
         L.append("\n## 🛡 Ce qui te contredit (à anticiper : réponds-y avant qu'on te le sorte en commentaire)\n")
