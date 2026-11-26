@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "🎙 Mode : normal · commentaire d'une vidéo = tu commentes la vidéo déposée dans montage-joints (lance d'abord le prompteur dans ce mode : il y dépose la liste des passages). Pas de Shorts dans ce mode"
+        description: "🎙 Mode : normal · commentaire d'une vidéo = tu commentes une vidéo qui doit être dans GOOGLE DRIVE → dossier « montage-joints » (⚠ PAS dans Releases). Ordre : 1) la vidéo à commenter dans montage-joints 2) prompteur OSINT en mode « commentaire d'une vidéo » 3) tu t'enregistres en lisant 4) ce montage. Pas de Shorts dans ce mode"
         type: choice
         options: [normal, "commentaire d'une vidéo"]
         default: normal
