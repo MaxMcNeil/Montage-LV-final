@@ -105,11 +105,18 @@ def preparer(ai, words, sents, att, tr, quiet, orient, work, lang, data, label_f
                           "(ancienne liste ? relance le prompteur en mode commentaire) : montage fait comme d'habitude")
         return None, [], info
     info["video"] = x["name"]
+    # vidéo commentée verticale dans un montage horizontal : gardée VERTICALE et entière, dans une grande fenêtre
+    fmt = orient
+    if orient == "h" and est_verticale(x["path"]):
+        mise_en_page("h", True)
+        fmt = "v"
+        info["verticale"] = True
+        log.info("Commentaire : vidéo commentée verticale → grande fenêtre verticale, vidéo entière (rien de coupé)")
     label = (label_for(x, 0, 0) if label_for else None) or x.get("label") or Path(x["name"]).stem.replace("_", " ")
 
     def clip(a, b, nom, src_txt):
         a, b = max(0.0, float(a)), min(float(x.get("duration") or b), float(b))
-        asset = prepare_insert(Path(x["path"]), a, b, orient, work, nom, lang, ai, x.get("sentences") or None,
+        asset = prepare_insert(Path(x["path"]), a, b, fmt, work, nom, lang, ai, x.get("sentences") or None,
                                x.get("lang"))
         if asset:
             asset["credit"] = {"label": label}
@@ -154,12 +161,37 @@ GEOM_H = {"left": {"card": (80, 140, 620, 800), "panel": (760, 140, 1080, 800)},
           "right": {"card": (1220, 140, 620, 800), "panel": (80, 140, 1080, 800)}}
 
 
-def mise_en_page(orient: str) -> None:
+# Vidéo commentée VERTICALE dans un montage horizontal : une grande fenêtre verticale (576 × 1024, presque toute la
+# hauteur), vidéo ENTIÈRE (rien de coupé : visages, sous-titres incrustés en haut ou en bas), toi à côté
+GEOM_HV = {"left": {"card": (250, 96, 760, 888), "panel": (1094, 28, 576, 1024)},
+           "right": {"card": (910, 96, 760, 888), "panel": (250, 28, 576, 1024)}}
+
+
+def est_verticale(path) -> bool:
+    """Vidéo plus haute que large (téléphone, TikTok, Shorts), rotation du téléphone comprise."""
+    try:
+        from .util import probe
+        i = probe(path)
+        return bool(i["w"] and i["h"] and i["h"] > i["w"] * 1.15)
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def mise_en_page(orient: str, verticale: bool = False) -> None:
     """Agrandit la zone de la vidéo commentée (horizontal) pour tout le montage : pause, passages et ouverture au même
-    endroit, à la même taille."""
+    endroit, à la même taille. Vidéo commentée verticale : grande fenêtre verticale (GEOM_HV)."""
     from . import config as C
     if orient == "h":
-        C.GEOM["h"].update({k: dict(v) for k, v in GEOM_H.items()})
+        C.GEOM["h"].update({k: dict(v) for k, v in (GEOM_HV if verticale else GEOM_H).items()})
+
+
+def contenir(pw: int, ph: int, cw_: int, ch_: int) -> tuple:
+    """Vidéo VERTICALE dans un montage horizontal : la plus grande taille qui tient dans la zone, sans rien couper."""
+    vh = ph
+    vw = int(ph * cw_ / ch_)
+    if vw > pw:
+        vw, vh = pw, int(pw * ch_ / cw_)
+    return vw // 2 * 2, vh // 2 * 2
 
 
 def zone_video(orient: str, clip_wh: tuple, side: str = "left") -> tuple:
@@ -168,7 +200,9 @@ def zone_video(orient: str, clip_wh: tuple, side: str = "left") -> tuple:
     W, H = (1920, 1080) if orient == "h" else (1080, 1920)
     pw, ph = C.GEOM[orient][side]["panel"][2:]
     cw_, ch_ = clip_wh if clip_wh and clip_wh[0] and clip_wh[1] else (16, 9)
-    if orient == "h":
+    if orient == "h" and ch_ > cw_ * 1.15:
+        vw, vh = contenir(pw, ph, cw_, ch_)
+    elif orient == "h":
         vw, vh = pw // 2 * 2, int(pw * H / W) // 2 * 2
     elif cw_ > ch_ * 1.2:
         vw, vh = pw // 2 * 2, min(ph, int(pw * ch_ / cw_)) // 2 * 2

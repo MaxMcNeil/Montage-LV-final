@@ -508,7 +508,11 @@ def _opener_framed(seg, ctx: Ctx, out: Path, pa: Path, pb: Path, mode: str, open
         cx, cy, cw, ch = geo["card"]
         px, py, pw, ph = geo["panel"]
         lay = card_layers(cw, ch, ctx.work / "layers")
-        if ctx.o == "h":   # extrait entier visible (aucune partie coupée), centré dans la zone média
+        if ctx.o == "h" and _dims(ins)[1] > _dims(ins)[0] * 1.15:
+            # vidéo commentée VERTICALE (mode commentaire) : la plus grande possible dans sa fenêtre, entière
+            from .commentaire import contenir
+            vw, vh = contenir(pw, ph, *_dims(ins))
+        elif ctx.o == "h":   # extrait entier visible (aucune partie coupée), centré dans la zone média
             vw, vh = pw // 2 * 2, int(pw * H / W) // 2 * 2
         elif _dims(ins)[0] > _dims(ins)[1] * 1.2:
             # vertical, extrait préparé en horizontal (version verticale d'un montage horizontal) : en entier
@@ -612,7 +616,8 @@ def render_insert(seg, ctx: Ctx, out: Path, prev_t: float, next_t: float, k: int
     i_b = g.inp("-loop", "1", "-framerate", FPS, "-t", "1", "-i", pb)
     norm = f"fps={FPS},settb=1/{FPS},format=yuv420p"
     din, dout = min(0.55, N / FPS / 4), min(0.45, N / FPS / 4)
-    g.add(f"[{i_clip}:v]{norm},setpts=N/{FPS}/TB,tpad=stop_mode=clone:stop_duration=1,trim=end_frame={N}[cl]")
+    g.add(f"[{i_clip}:v]scale={ctx.W}:{ctx.H}:force_original_aspect_ratio=decrease,pad={ctx.W}:{ctx.H}:(ow-iw)/2:(oh-ih)/2,"
+          f"setsar=1,{norm},setpts=N/{FPS}/TB,tpad=stop_mode=clone:stop_duration=1,trim=end_frame={N}[cl]")
     g.add(f"[{i_a}:v]{norm}[fa]")
     g.add(f"[{i_b}:v]{norm}[fb]")
     if opener:  # ouverture : l'extrait démarre sur la toute première image (aucun noir, aucune transition)

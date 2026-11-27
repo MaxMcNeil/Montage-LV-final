@@ -564,6 +564,17 @@ def translate(ai, sents: list, src: str, dst: str) -> list:
     return [dict(s, text=str(t).strip() or s["text"]) for s, t in zip(sents, lines)]
 
 
+def sous_titres_incrustes(src) -> bool:
+    """La vidéo porte déjà ses sous-titres dans l'image (sortie de Translate-video, marquée dans ses métadonnées) :
+    le montage n'en ajoute pas une deuxième couche par-dessus."""
+    try:
+        r = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format_tags=comment", "-of",
+                            "default=nw=1:nk=1", str(src)], capture_output=True, text=True, timeout=60)
+        return "sous-titres incrustés" in (r.stdout or "").lower()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def prepare_insert(src: Path, a: float, b: float, orient: str, work: Path, name: str, lang: str, ai,
                    clip_sents: list | None = None, clip_lang: str | None = None) -> dict | None:
     """Normalise l'extrait [a, b] : image au format de sortie (sans déformation, fond flou), 30 i/s, son égalisé.
@@ -599,7 +610,10 @@ def prepare_insert(src: Path, a: float, b: float, orient: str, work: Path, name:
         log.warning("extrait %s inutilisable : %s", name, e)
         return None
     subs = []
-    if info["audio"]:
+    deja = sous_titres_incrustes(src)
+    if deja:
+        log.info("extrait %s : sous-titres déjà dans l'image (Translate-video) → pas de deuxième couche", name)
+    if info["audio"] and not deja:
         if clip_sents is None:
             try:
                 t = transcribe(aout, work, None, tag=f"{name}_asr")
